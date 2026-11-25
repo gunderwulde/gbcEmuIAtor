@@ -7,7 +7,7 @@ export const DOTS_PER_FRAME = 70224;
 export const DOT_HZ = 4194304;
 export const FRAME_HZ = DOT_HZ / DOTS_PER_FRAME; // ≈ 59.7275
 
-export const enum Stop { Frame = 0, Breakpoint = 1, Step = 2 }
+export const enum Stop { Frame = 0, Breakpoint = 1, Step = 2, Watchpoint = 3 }
 
 export const PAD = {
   right: 1, left: 2, up: 4, down: 8, a: 16, b: 32, select: 64, start: 128,

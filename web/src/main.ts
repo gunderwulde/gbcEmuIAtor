@@ -105,7 +105,7 @@ async function main(): Promise<void> {
         const s = core.audio(audio.sampleRate);
         if (!fastForward) audio.push(s);
       }
-      if (r === Stop.Breakpoint) {
+      if (r === Stop.Breakpoint || r === Stop.Watchpoint) {
         // Se avisa al depurador cuando el bucle ya está parado (nunca desde dentro del frame).
         queueMicrotask(() => { setRunning(false); for (const cb of stopCbs) cb(r); });
         return false;

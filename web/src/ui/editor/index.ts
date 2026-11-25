@@ -29,6 +29,8 @@ export interface EditorApi {
   setBreakpointLines(lines: ReadonlySet<number>): void;
   onToggleBreakpoint(cb: (line: number) => void): void;
   showExecLine(line: number | null): void;
+  /** Línea (base 1) donde está el cursor principal. */
+  cursorLine(): number;
   focus(): void;
 }
 
@@ -232,6 +234,7 @@ export function mountEditor(container: HTMLElement, deps: { core: Core; resume: 
         effects.push(EditorView.scrollIntoView(view.state.doc.line(line).from, { y: "nearest" }));
       view.dispatch({ effects });
     },
+    cursorLine: () => view.state.doc.lineAt(view.state.selection.main.head).number,
     focus() { view.focus(); },
   };
   return api;

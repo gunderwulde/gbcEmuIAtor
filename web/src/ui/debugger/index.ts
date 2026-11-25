@@ -21,8 +21,8 @@ export interface DebuggerHost {
   stop(): void;
   /** El bucle se ha parado solo (gb_run_frame ≠ fin de frame); se llama ya parado. */
   onStop(cb: (reason: number) => void): void;
-  /** Con cursorLine (opcional), Ctrl+F10 en el editor corre hasta la línea del cursor. */
-  editor?: EditorApi & { cursorLine?(): number };
+  /** Ctrl+F10 en el editor corre hasta la línea del cursor. */
+  editor?: EditorApi;
 }
 
 export interface DebuggerApi {
