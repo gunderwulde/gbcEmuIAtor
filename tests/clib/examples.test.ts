@@ -24,9 +24,9 @@ function press(m: CMachine, mask: number, frames = 3, after = 3): void {
 const frames = (m: CMachine, n: number, input?: (t: number) => number) => m.run((n * FRAME) / SEC, input);
 
 describe("lista de ejemplos", () => {
-  it("10 ejemplos con id único, título y main entre sus ficheros", () => {
-    expect(C_EXAMPLES.length).toBe(10);
-    expect(new Set(C_EXAMPLES.map((e) => e.id)).size).toBe(10);
+  it("11 ejemplos (los 10 de L1 y la aventura de AV) con id único, título y main entre sus ficheros", () => {
+    expect(C_EXAMPLES.length).toBe(11);
+    expect(new Set(C_EXAMPLES.map((e) => e.id)).size).toBe(11);
     for (const e of C_EXAMPLES) {
       expect(e.title).not.toBe("");
       expect(e.files.has(e.main)).toBe(true);

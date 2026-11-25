@@ -182,7 +182,7 @@ describe("U1 construir desde pestañas", () => {
     expect(d.lang).toBe("c");
     expect(hasMain(d.files.get(d.main)!)).toBe(true);
     expect(C_EXAMPLES[0]).toBe(d);
-    expect(C_EXAMPLES.length).toBe(10);
+    expect(C_EXAMPLES.length).toBe(11);
   });
 
   // ---- Con el compilador real (K1), cuando exista ----

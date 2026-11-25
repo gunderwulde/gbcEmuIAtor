@@ -12,6 +12,12 @@ import ex09 from "./examples/09-interrupciones.c?raw";
 import ex10 from "./examples/10-estrellas.c?raw";
 import ex10save from "./examples/10-save.asm?raw";
 
+/** La aventura (tarea AV): varios .c/.h/.asm en su carpeta. */
+const adventure = import.meta.glob("./examples/adventure/*", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const advFiles = Object.keys(adventure)
+  .sort()
+  .map((p): [string, string] => [p.slice(p.lastIndexOf("/") + 1), adventure[p]!]);
+
 export interface CExample {
   /** Identificador estable (p. ej. "c01-hola"). */
   id: string;
@@ -41,6 +47,12 @@ export const C_EXAMPLES: readonly CExample[] = [
   one("c08-fundido", "C 08 · HDMA y fundidos", "08-fundido.c", ex08),
   one("c09-interrupciones", "C 09 · Interrupciones y doble velocidad", "09-interrupciones.c", ex09),
   one("c10-estrellas", "C 10 · Lluvia de estrellas (juego)", "10-estrellas.c", ex10, [["10-save.asm", ex10save]]),
+  {
+    id: "c11-aventura",
+    title: "C 11 · Musgo y la cripta del liquen (aventura)",
+    files: new Map(advFiles),
+    main: "main.c",
+  },
 ];
 
 export function cExampleById(id: string): CExample | undefined {
