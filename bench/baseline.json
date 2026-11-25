@@ -14,22 +14,22 @@
   "wasm": "build/wasm/core.wasm",
   "scenarios": {
     "heavy": {
-      "msFrame": 0.6195,
-      "minMs": 0.6135,
-      "spread": 7,
-      "realtime": 27.02,
-      "mhz": 113.3,
-      "fbHash": "0021bf10",
-      "audioHash": "04f6656d"
+      "msFrame": 0.8806,
+      "minMs": 0.8104,
+      "spread": 30,
+      "realtime": 19.01,
+      "mhz": 79.7,
+      "fbHash": "7043e3ec",
+      "audioHash": "4f765511"
     },
     "idle": {
-      "msFrame": 0.48,
-      "minMs": 0.4739,
-      "spread": 6.5,
-      "realtime": 34.88,
-      "mhz": 146.3,
-      "fbHash": "0021bf10",
-      "audioHash": "d60a8f21"
+      "msFrame": 0.7291,
+      "minMs": 0.6258,
+      "spread": 20.9,
+      "realtime": 22.96,
+      "mhz": 96.3,
+      "fbHash": "7043e3ec",
+      "audioHash": "0d2d6605"
     }
   }
 }
