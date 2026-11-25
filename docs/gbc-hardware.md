@@ -118,6 +118,15 @@ M1]`, contrastar con mooneye `boot_hwio-C`).
   la recarga carga el valor nuevo. Fuente: mooneye `acceptance/timer/*`.
 - En doble velocidad el contador avanza al doble respecto a la PPU (va con el reloj de
   la CPU) `[VERIFICAR M1]`.
+- Escribir TAC: el multiplexor cambia **antes** del paso del contador de ese ciclo M, así
+  que el flanco se evalúa entre `bit_TAC_viejo(contador − 4)` y `bit_TAC_nuevo(contador −
+  4)` y después el paso normal del ciclo se evalúa ya con el TAC nuevo. Lo fija mooneye
+  `acceptance/timer/rapid_toggle` (pasa); el orden exacto dentro del ciclo es la
+  interpretación más simple que lo cumple `[VERIFICAR]`.
+- STOP (con o sin cambio de velocidad) pone el contador a 0 con los mismos efectos de
+  flanco que escribir DIV (TIMA y secuenciador de la APU). En el cambio de velocidad del
+  CGB E el bit de 262 kHz (TAC = 01) se muestrea un ciclo M tarde (contador + 4): AGE
+  `spsw-tima-cgbE` `[VERIFICAR: sólo medido en revisión E]`.
 
 ## 6. OAM DMA y HDMA
 
@@ -131,6 +140,12 @@ M1]`, contrastar con mooneye `boot_hwio-C`).
   detiene mientras. Escribir FF55 con bit 7 = 0 durante una HDMA la cancela. Duración
   por bloque: 8 ciclos M en velocidad normal, 16 en doble (≈ 8 µs y 8 µs) `[VERIFICAR M1
   con SameSuite dma/*]`.
+- Arrancar una HDMA con el LCD apagado o estando ya en modo 0 copia el primer bloque de
+  inmediato (sin esperar al siguiente HBlank). Mealybug `dma/hdma_lcd_off` y
+  `dma/hdma_mode0` (pasan). El ciclo M exacto del HBlank en que empieza cada bloque aún
+  no es exacto: Mealybug `dma/hdma_timing-C` falla (GBC-1) `[VERIFICAR]`.
+- Fuente en VRAM (8000–9FFF) o en E000–FFFF: la DMA lee FFh (no hay eco de WRAM para
+  ella). Mealybug `dma/gdma_addr_mask` (pasa).
 - Fuente: Pan Docs (CGB Registers), SameSuite.
 
 ## 7. PPU
@@ -144,27 +159,76 @@ M1]`, contrastar con mooneye `boot_hwio-C`).
 | 0 (HBlank) | resto hasta 456 | todo |
 | 1 (VBlank) | líneas 144–153 | todo |
 
-Implementación (V1, `core/src/ppu.c`): la PPU se pone al día perezosamente hasta
-`gb.now` saltando de frontera en frontera (punto 80: modo 3; punto 80 + longitud del
-modo 3: modo 0; punto 456: línea nueva; línea 153 punto 4: LY = 0). Los píxeles se
-emiten durante el modo 3 hasta el punto del acceso (el píxel x sale en el punto
-80 + (len − 160) + x), así que los cambios de registros, VRAM y paletas a mitad de línea
-se ven en la columna correspondiente. No hay FIFO real: las penalizaciones del modo 3 se
-cargan al principio de la línea (ver inexactitudes en §7.7).
+Implementación (`core/src/ppu.c`): la PPU se pone al día perezosamente saltando de
+suceso en suceso. Los píxeles se emiten durante el modo 3 hasta el punto del acceso, así
+que los cambios de registros, VRAM y paletas a mitad de línea se ven en la columna
+correspondiente. No hay FIFO real: las penalizaciones del modo 3 se cargan al principio
+de la línea (ver inexactitudes en §7.7).
+
+**Regla de orden (CPU frente a PPU).** Un suceso de la PPU en el punto T sólo lo ve un
+acceso de la CPU *posterior* a T; una escritura de la CPU en el punto T llega antes que
+los sucesos de ese mismo punto. Es la semántica de `GB_SLEEP` en SameBoy (un estado sólo
+avanza cuando el tiempo disponible supera el pedido). En el código: la PPU se pone al
+día hasta `gb.now − 1` y `ppu_next_event()` devuelve el punto del suceso + 1.
+
+**Línea de tiempo de una línea visible (CGB-E, velocidad normal).** Puntos contados
+desde el principio de la línea; E = 84 + longitud del modo 3. Fuente: SameBoy
+`display.c` (`GB_display_run`, "Lines 0 - 143"), contrastado con AGE `ly-cgbE`,
+`stat-mode-cgbE`, `oam-read-cgbE`, `vram-read-cgbBCE` y mooneye `stat_lyc_onoff`, que
+pasan:
+
+| Punto | Suceso |
+|---|---|
+| 0 | OAM bloqueada para escribir (en doble velocidad, en el 2) |
+| 3 | LY = línea; OAM bloqueada para leer; salvo en la línea 0: STAT lee modo 0, el comparador LYC no ve ninguna línea y **sale la IRQ de modo 2** (un punto antes de que STAT lea 2) |
+| 4 | STAT lee modo 2; el comparador ve LY (flag e IRQ de LYC) |
+| 80 | VRAM y paletas libres (fin de la búsqueda en OAM; ya lo estaban desde la línea anterior) |
+| 84 | modo 3: VRAM, OAM bloqueadas |
+| 87 | paletas (BCPD/OCPD) bloqueadas |
+| E | STAT lee modo 0, VRAM y OAM (escritura) desbloqueadas, HBlank para la HDMA (en doble velocidad, todo en E+1) |
+| E+1 | IRQ de modo 0; OAM desbloqueada para leer |
+| E+3 | paletas: siguen bloqueadas en velocidad normal; libres en doble velocidad |
+| E+5 | paletas libres |
+| 454 | la fuente de modo 2 se arma para la línea siguiente (salvo en la 143) |
+
+Las paletas **no** se liberan en E: en SameBoy `cgb_palettes_blocked` sigue a 1 desde el
+87 hasta E+3, donde pasa a `!cgb_double_speed`, y a 0 en E+5 (`display.c`, fin del modo
+3: `GB_SLEEP(gb, display, 33, 2)` / `36, 2`). Test: `timing.test.ts`, "PPU-06"
+(BCPD/OCPD leen FFh en E+1 y E+2) `[VERIFICAR: sin ROM de hardware que lo fije]`.
+
+**Qué despierta a la máquina.** Sólo los sucesos que pueden pedir una IRQ o una HDMA
+con la configuración actual (`observable()` en `ppu.c`): 3 si STAT.5 (en la línea 0, si
+STAT.6 y LYC = 0); 4 si STAT.6 y LYC = línea (en la línea 0 también con STAT.5); 84
+(cuando aún no se sabe E), E y E+1 sólo con STAT.3 o HDMA activa; en VBlank el 2 de la
+144 con STAT.5, el 4 con LYC = línea, el 5 de la 144 siempre, y el 8/12 de la 153 con
+LYC = 153 / 0. `ppu_next_event()` busca en las líneas siguientes si hace falta. LY, modo
+visible y bloqueos sólo los ve un acceso, que ya pone al día la PPU. Por eso escribir
+STAT, LYC o arrancar una HDMA (FF55) reprograma el planificador.
+
+- La línea 0 de cada frame sigue en modo 1 hasta el punto 4.
+- La HDMA arranca su bloque en E (SameBoy lo hace en E+3); se deja en E por la lógica de
+  FF55 de `gbc.c` (empezar en modo 0 copia al instante) `[VERIFICAR GBC-1]`.
 
 ### 7.2 STAT y LY
 - La IRQ de STAT es la OR de las fuentes habilitadas (LYC=LY, modo 0, 1, 2); sólo se
   dispara en el flanco de subida de esa OR ("STAT blocking"). Test: `tests/core/ppu/timing.test.ts`.
-- En la línea 153, LY lee 153 sólo el primer ciclo M (puntos 0–3) y después 0; la
-  comparación LYC usa ese LY `[VERIFICAR V1: punto exacto en CGB y en doble velocidad]`.
-- Al entrar en VBlank (línea 144) también se activa la fuente de modo 2 durante el
-  cambio (mooneye `vblank_stat_intr`) `[VERIFICAR V1: cuánto dura]`.
-- Al encender el LCD (LCDC.7 0→1) la línea 0 empieza en el punto 0 sin modo 2 (STAT lee
-  modo 0 hasta el modo 3) y ese primer frame no se muestra (se queda el framebuffer
-  blanco) `[VERIFICAR V1: duración exacta de esa primera línea]`. Al apagarlo LY = 0,
-  modo 0, y la pantalla se ve blanca.
-- VRAM bloqueada en modo 3 y OAM en modos 2 y 3 sólo con el LCD encendido (lecturas FFh,
-  escrituras ignoradas).
+- Líneas de VBlank (144–153): en el punto 0 el comparador LYC deja de ver línea; en el 2
+  LY = línea; en el 4 el comparador ve LY. En la línea 144, punto 5: modo 1, IF.0
+  (VBlank) e IRQ de STAT si la fuente de modo 1 está activa; ahí se intercambia el
+  framebuffer y acaba `gb_run_frame`.
+- Al entrar en VBlank la fuente de modo 2 también pide IRQ (sin subir la OR de STAT) en
+  el punto 2 y otra vez en el 5 de la línea 144 (SameBoy; mooneye `vblank_stat_intr`, que
+  aún falla en CGB: PPU-4) `[VERIFICAR]`.
+- Línea 153 (CGB-E): LY lee 153 en los puntos 2–7 y 0 desde el 8; el comparador sigue
+  viendo 153 hasta el 12 y ve 0 desde ahí (SameBoy; AGE `ly-cgbE`, `lcd-align-ly`)
+  `[VERIFICAR: doble velocidad]`.
+- Escrituras de LYC, WX y STAT en velocidad normal: llegan a la PPU 1 punto más tarde
+  (conflicto de escritura del CGB en SameBoy, `GB_conflict_map_cgb`). En doble velocidad
+  se aplican al momento.
+- Al encender el LCD (LCDC.7 0→1) la primera línea dura 448 puntos sin modo 2 (STAT lee
+  modo 0): OAM bloqueada para escribir en el 76, modo 3 en el 78, paletas en el 80 y VRAM
+  en el 83; ese primer frame no se muestra (framebuffer blanco) `[VERIFICAR]`. Al
+  apagarlo LY = 0, modo 0, y la pantalla se ve blanca.
 
 ### 7.3 Longitud del modo 3
 172 puntos base + SCX % 8 + 6 si la ventana empieza en la línea + por sprite 6 puntos más
@@ -220,7 +284,30 @@ X = 8) `[VERIFICAR V1: casos de ventana con sprites y WX = 0; contrastar con GBE
 - Las reglas de activación de la ventana a mitad de línea (WX cambiado durante el modo
   3, WX = 0 con SCX % 8, WX = 166) son las simplificadas de §7.4.
 - La fuente de modo 2 en la línea 144 y la primera línea tras encender el LCD están
-  modeladas a partir de mooneye y Pan Docs, sin comprobar en hardware.
+  modeladas a partir de SameBoy, mooneye y Pan Docs, sin comprobar en hardware.
+- AGE `stat-int-*` y mooneye `intr_2_*` siguen fallando: la CPU lee STAT un ciclo M más
+  tarde de lo esperado tras la IRQ de modo 2. La línea de tiempo de la PPU coincide con
+  SameBoy, así que la sospecha es el muestreo de IE & IF en `sm83.c` (SameBoy lo hace al
+  empezar la instrucción, *antes* de consumir los 4 ciclos pendientes del último acceso)
+  `[VERIFICAR]`.
+
+### 7.8 Bloqueo de VRAM, OAM y paletas
+Sólo con el LCD encendido; lecturas FFh, escrituras ignoradas. Las ventanas de lectura y
+de escritura de la OAM son distintas (tabla de §7.1):
+Ventanas [desde, hasta), en puntos de la línea (fuente: SameBoy `GB_display_run`):
+- OAM, escritura: 0 (2 en doble velocidad) a E (E+1 en doble velocidad).
+- OAM, lectura: 3 a E+1.
+- VRAM: 84 a E (E+1 en doble velocidad).
+- Paletas: 87 a E+5 en velocidad normal, 87 a E+3 en doble velocidad (no se liberan en
+  E, ver §7.1).
+- Primera línea tras encender el LCD: OAM escritura desde 76, lectura desde 78, VRAM
+  desde 83 (78 en doble velocidad), paletas desde 80; los finales, como arriba.
+- VBlank: todo libre.
+
+`gbc.c` usa `ppu_oam_blocked()` para leer la OAM y `ppu_oam_write_blocked()` para
+escribirla (AGE `oam-write-*` pasa). En `ppu.c` los bloqueos no son sucesos de la línea:
+se calculan en el acceso a partir del punto, E y la velocidad, porque sólo los observa
+la CPU tras poner al día la PPU.
 
 ## 8. APU
 
@@ -229,7 +316,8 @@ Fuentes: Pan Docs ("Audio", "Audio Registers", "Audio details"), Blargg `cgb_sou
 `tests/core/apu/`.
 
 ### 8.1 Relojes
-- El reloj de la APU es el punto (4 194 304 Hz); **no** cambia con la doble velocidad.
+- El reloj de la APU es de 2 MHz (un tick = 2 puntos); **no** cambia con la doble
+  velocidad (§8.5).
 - Secuenciador de frame a 512 Hz, avanzado por el flanco descendente del bit 4 de DIV
   (bit 12 del contador interno; bit 13 en doble velocidad, así sigue a 512 Hz). Escribir
   en DIV puede producir ese flanco (lo resuelve gbc.c). Pasos 0–7: longitud en 0, 2, 4, 6
@@ -243,8 +331,9 @@ Fuentes: Pan Docs ("Audio", "Audio Registers", "Audio details"), Blargg `cgb_sou
 | 3 onda | (2048 − x) × 2 puntos por muestra, 32 muestras | 65 536 / (2048 − x) Hz | nibble alto primero; NR32: mudo, 100 %, 50 %, 25 % (desplazamiento 4, 0, 1, 2) |
 | 4 ruido | (r ? 16·r : 8) << s puntos por paso del LFSR | 262 144 / (r·2^s) Hz (r = 0 → 0,5) | s ≥ 14: el LFSR no avanza |
 
-- LFSR: 15 bits a 7FFFh al disparar; bit nuevo = b0 XOR b1 al bit 14 (y también al 6 con
-  NR43.3); salida = volumen si b0 = 0.
+- LFSR (modelo equivalente de Pan Docs): 15 bits a 7FFFh al disparar; bit nuevo = b0 XOR
+  b1 al bit 14 (y también al 6 con NR43.3); salida = volumen si b0 = 0. apu.c usa la forma
+  invertida de SameBoy (0 al disparar, salida = b0), ver §8.5.
 - Longitud: 64 pasos (256 en el canal 3), `len = máx − NRx1`; a 0 apaga el canal.
 - Envolvente: periodo 0 = parada; sube/baja 1 dentro de 0–15; no apaga el canal.
 - Barrido (canal 1): al disparar, sombra = frecuencia, temporizador = periodo (0 → 8) y,
@@ -294,17 +383,61 @@ Fuentes: Pan Docs ("Audio", "Audio Registers", "Audio details"), Blargg `cgb_sou
   salida son el promedio (filtro de caja) de 4 194 304 / rate puntos. Escala: ±1,0 = 4
   canales a 15 con volumen maestro 8.
 
-### 8.5 Inexactitudes conocidas
-- No se modelan: el retardo de unos puntos del primer paso tras el disparo (bits bajos del
-  temporizador del pulso, +6 puntos del canal 3), el "modo zombi" de NRx2 con el canal
-  activo, la corrupción de la RAM de onda (es de DMG), ni el desfase del primer paso del
-  secuenciador según DIV al encender. Pendiente de Blargg `cgb_sound` y SameSuite `apu/*`.
+### 8.5 Modelo al tick de 2 MHz (CGB-E)
+Fuente: SameBoy (`Core/apu.c`, `timing.c`, ramas de revisión E), contrastado con SameSuite
+`apu/channel_*` (46 tests) y Blargg `cgb_sound` 09, que pasan. Corrige lo dicho arriba
+donde difiere:
+- **Tick de la APU = 2 puntos (2 MHz) en ambas velocidades.** Pulso: paso cada
+  (2048 − f) × 2 ticks; onda: muestra cada (2048 − f) ticks; contador del ruido: un paso
+  cada `(NR43 & 7) × 4` ticks (0 → 2), y el LFSR avanza en el flanco de subida del bit
+  `NR43 >> 4` de ese contador de 14 bits. `lf_div` (fase de 1 MHz) empieza a 1 al encender
+  la APU y cambia cada tick; la alineación de los disparos depende de ella.
+- **Fase respecto a la CPU:** el evento del secuenciador (flanco de bajada del bit 12/13 de
+  DIV) ve la APU un ciclo M por detrás del instante del acceso; los accesos de la CPU la
+  ven al día. Encender la APU con ese bit de DIV a 1 se salta el primer evento.
+- **Retardos de disparo (pulso):** canal inactivo: 6 − lf_div ticks, más un paso extra del
+  ciclo de trabajo según los bits de la cuenta; activo: 4 − lf_div (+2 en un caso de
+  f = 7FFh). La salida sigue a 0 hasta el primer paso. El índice del ciclo de trabajo sólo
+  lo reinicia apagar la APU. Onda: cuenta = (2048 − f) + 3 ticks y la primera salida es el
+  nibble alto del byte que ya tenía el búfer.
+- **Envolvente en dos fases:** en el flanco de subida del bit de DIV, si la cuenta del
+  periodo es 0 se recarga y se "arma" el reloj; en el flanco de bajada siguiente se mueve
+  el volumen (en doble velocidad, un tick más tarde). La cuenta del periodo baja en el
+  paso 7 del divisor en los canales sin reloj armado.
+- **Modo zombi de NRx2 (CGB-E):** escribir NRx2 con el canal activo hace una única
+  transición vieja → nueva: si el reloj está armado recarga la cuenta; periodo 0 → ≠ 0 sin
+  bloqueo da un paso; cambiar la dirección invierte el volumen (`v ^ F` o `E − v` hacia
+  subir, `10h − v` hacia bajar). Ver `nrx2_glitch` en apu.c.
+- **Barrido:** el cálculo y la comprobación de desbordamiento tardan unos ciclos de 1 MHz
+  (recarga 2–3 + desplazamiento); el del disparo **no** es instantáneo. Con NR10 bits
+  0-2 = 0 la cuenta del cálculo se **congela** (no avanza ni termina) hasta que se vuelva a
+  escribir NR10 con desplazamiento ≠ 0 (SameBoy). En el núcleo, un cálculo congelado no
+  obliga a la puesta al día a ir de ciclo M en ciclo M (test «NR10 = 00 durante el
+  cálculo…» en tests/core/apu).
+- **Ruido:** LFSR = 0 al disparar (lógica invertida: bit nuevo = NOT(b0 XOR b1)). La cuenta
+  inicial depende de la alineación (`prepare_noise_start`) y escribir NR43 puede dar pasos
+  espurios del LFSR al pasar por el valor intermedio `viejo & 7F | nuevo & 80`.
+- `[VERIFICAR]` Fase del secuenciador y del generador en el estado sin boot ROM.
+- No se modelan: las lecturas "buggy" de la RAM de onda con el canal parado pero aún
+  disparado (necesitan el bus de direcciones de la CPU; en NR30 se aproxima con PC & F) y
+  el retoque de SameBoy al escribir DIV durante el cálculo del barrido.
 
 ## 9. Doble velocidad
 
 - KEY1 bit 0 = preparar; STOP efectúa el cambio; KEY1 bit 7 = velocidad actual.
-- La pausa del cambio dura ≈ 2 050 ciclos M (8 200 puntos) `[VERIFICAR M1]`; DIV se
-  pone a 0.
+- STOP con KEY1.0 = 1 pone a 0 el contador de DIV (con sus efectos de flanco, §5), borra
+  KEY1.0 y detiene la CPU **32 767 ciclos M** (no ≈ 2 050: con 32 768 DIV sale un paso
+  alto). Medido con AGE `speed-switch/spsw-div` y `spsw-mode0` (pasan); la PPU, el
+  temporizador y la APU siguen corriendo durante la pausa.
+- Reparto de esa pausa entre velocidades, ajustado con `spsw-mode0`/`spsw-tima-cgbE`
+  `[VERIFICAR]`: al pasar a doble, los 2 primeros ciclos M aún van a velocidad normal;
+  al volver a normal, el cambio es inmediato pero se pierde 1 punto suelto de la PPU.
+- La CPU ya ha captado el byte siguiente a STOP antes de la pausa y lo ejecuta después
+  (AGE `spsw-stop-prefetch`). El núcleo lo vuelve a leer tras la pausa, porque la
+  captación está en `sm83.c`: falla (GBC-3).
+- Tras pasar a doble velocidad el contador de longitud de la APU va retrasado 1 ciclo M
+  respecto al de antes (alterna en cada cambio; AGE `spsw-ch2-lc-delay`). No está
+  modelado (requiere estado en `apu.c`): falla (GBC-3).
 - Afecta a CPU, temporizador, serie, OAM DMA; **no** a la PPU, HDMA (en tiempo) ni a la
   APU (salvo el bit de DIV que usa el secuenciador).
 
@@ -337,7 +470,10 @@ Fuentes: Pan Docs ("Audio", "Audio Registers", "Audio details"), Blargg `cgb_sou
   (banco RAM o bits altos de ROM); 6000–7FFF modo. Fuente: mooneye `emulator-only/mbc1`.
 - **MBC2:** 512 × 4 bits de RAM interna; el bit 8 de la dirección elige RAM on/off o banco.
 - **MBC3:** 7 bits de banco ROM (0 → 1), RAM 0–3 o registros RTC 08h–0Ch, latch con 00→01
-  en 6000–7FFF.
+  en 6000–7FFF. Las lecturas del RTC devuelven siempre la copia latcheada: lo escrito en
+  un registro no se ve hasta el siguiente latch. Escribir los segundos reinicia el
+  divisor de subsegundo. El RTC avanza con los ciclos emulados (1 s = 4 194 304 puntos,
+  también en doble velocidad). Fuentes: Mealybug `mbc3_rtc` y `rtc3test` (pasan).
 - **MBC5:** 9 bits de banco ROM (el 0 es válido), 4 bits de banco RAM.
 
 ### 10.4 `.sav`
@@ -354,3 +490,10 @@ LY = 144 en el punto 0 (inicio del VBlank) en el instante del reset, con la IRQ 
 ya pedida en IF. Así cada `gb_run_frame` (múltiplos de 70 224 puntos desde el reset)
 acaba al empezar el VBlank `[VERIFICAR V1: fase real tras la boot ROM; mooneye
 boot_div/boot_hwio]`. Paletas: §7.5.
+
+Contador de DIV en el instante del reset: 1EA0h con cartucho CGB (DIV = 1Eh) y 2674h en
+compatibilidad DMG (DIV = 26h). El primero lo fija mooneye `misc/boot_div-cgbABCDE`
+(pasa); el segundo se derivó de la misma medición con la duración del arranque en modo
+compatibilidad `[VERIFICAR]`. FF4F se lee FEh | VBK también en compatibilidad DMG. En
+`misc/boot_hwio-C` sólo queda BCPS/OCPS, que deberían leerse C8h/D0h en compatibilidad;
+eso está en `ppu.c` (GBC-5).

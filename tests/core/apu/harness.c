@@ -2,10 +2,20 @@
  * harness.c — banco de pruebas de la APU aislada (sólo tests). Compila apu.c con un `gb`
  * propio: el tiempo y el flanco de DIV los pone el test, sin CPU ni gbc.c, para fijar la
  * APU registro a registro aunque la CPU aún no exista. Lo compila apu-harness.ts.
+ *
+ * apu.c se incluye aquí (unity build) para contar los tramos de run() con APU_RUN_HOOK:
+ * el número de tramos por frame es determinista y fija el coste de la puesta al día.
  */
 #include "../../../core/src/machine.h"
 
+static uint32_t h_runs_count;
+#define APU_RUN_HOOK() (h_runs_count++)
+#include "../../../core/src/apu.c"
+
 Gb gb;
+
+/* Tramos de run() desde la última llamada. */
+GB_EXPORT(h_runs) uint32_t h_runs(void) { uint32_t n = h_runs_count; h_runs_count = 0; return n; }
 
 GB_EXPORT(h_reset) void h_reset(uint32_t boot)
 {
@@ -25,9 +35,11 @@ GB_EXPORT(h_advance) void h_advance(uint32_t dots)
         uint64_t edge = (gb.now / 8192 + 1) * 8192;
         if (edge > end) break;
         gb.now = edge;
+        gb.div = (uint16_t)gb.now;   /* DIV sube 4 por ciclo M: igual que los puntos */
         apu_div_event();
     }
     gb.now = end;
+    gb.div = (uint16_t)gb.now;
     apu_catch_up();
 }
 

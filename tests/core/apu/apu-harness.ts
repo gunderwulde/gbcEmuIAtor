@@ -1,4 +1,4 @@
-// Compila core/src/apu.c + harness.c a un wasm propio (en GB_BUILD_DIR) y lo instancia.
+// Compila harness.c (que incluye core/src/apu.c) a un wasm propio (en GB_BUILD_DIR) y lo instancia.
 // Mismas flags que tools/build-core.mjs (incluido -Werror) con -DGB_DEBUG.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -21,17 +21,18 @@ export interface ApuHarness {
   /** Muestras estéreo intercaladas producidas desde la última llamada (copia). */
   audio(rate: number): Float32Array;
   state(): Uint8Array;
+  /** Tramos de run() desde la última llamada (coste de la puesta al día). */
+  runs(): number;
 }
 
 export async function loadApuHarness(): Promise<ApuHarness> {
   mkdirSync(WASM_DIR, { recursive: true });
   const dst = join(WASM_DIR, "apu-harness.wasm");
-  const src = join(ROOT, "core", "src");
   execFileSync(findClang(), [
     "--target=wasm32", "-std=c99", "-ffreestanding", "-nostdlib", "-mbulk-memory",
     "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-O2", "-DGB_DEBUG",
     "-Wl,--no-entry", "-Wl,--stack-first", "-Wl,-z,stack-size=65536",
-    join(src, "apu.c"), join(ROOT, "tests", "core", "apu", "harness.c"), "-o", dst,
+    join(ROOT, "tests", "core", "apu", "harness.c"), "-o", dst,
   ], { stdio: "inherit" });
   const { instance } = await WebAssembly.instantiate(readFileSync(dst), {});
   const x = instance.exports as Record<string, any>;
@@ -47,6 +48,7 @@ export async function loadApuHarness(): Promise<ApuHarness> {
       return new Float32Array(memory.buffer, x.h_audio_buffer(), n * 2).slice();
     },
     state: () => new Uint8Array(memory.buffer, x.h_state(), x.h_state_len()).slice(),
+    runs: () => x.h_runs() as number,
   };
 }
 

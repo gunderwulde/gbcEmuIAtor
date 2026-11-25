@@ -9,7 +9,7 @@
  */
 #include "machine.h"
 
-#define STATE_VERSION 1u
+#define STATE_VERSION 2u   /* 2: línea de tiempo de la PPU y APU de la fase 2 (X-PPU/X-APU) */
 
 typedef void *(*state_fn)(uint32_t *len);
 

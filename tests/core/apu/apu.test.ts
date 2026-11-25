@@ -142,7 +142,31 @@ describe("APU: registros", () => {
     powerOn();
     h.write(0xff10, 0x11);          // periodo 1, suma, desplazamiento 1
     triggerSquare1(0x7ff);          // 2047 + 1023 > 2047
+    // El cálculo del disparo tarda unos ciclos de 1 MHz (recarga + desplazamiento; SameBoy
+    // sweep_calculation_countdown): no apaga el canal en el mismo ciclo M, sí poco después.
+    h.advance(64);
     expect(h.read(NR52) & 1).toBe(0);
+  });
+
+  it("barrido: NR10 = 00 durante el cálculo no deja la puesta al día en tramos de ciclo M", () => {
+    // Oráculo: coste, no salida. Con desplazamiento 0 el cálculo pendiente se congela (no
+    // avanza ni termina), así que nada del barrido puede pasar en un ciclo M concreto y la
+    // puesta al día debe costar lo mismo que con el canal sin barrido.
+    const runsPerFrame = (nr10: number, stopSweep: boolean) => {
+      powerOn();
+      h.write(0xff10, nr10);
+      triggerSquare1(0x100);
+      if (stopSweep) h.write(0xff10, 0x00);   // dentro de la ventana del cálculo
+      h.advance(FRAME);
+      h.runs();
+      h.advance(FRAME);
+      expect(h.read(NR52) & 1).toBe(1);
+      return h.runs();
+    };
+    const plain = runsPerFrame(0x00, false);
+    const frozen = runsPerFrame(0x11, true);
+    expect(plain).toBeGreaterThan(0);
+    expect(frozen).toBeLessThanOrEqual(plain + 8);
   });
 
   it("PCM12 refleja la envolvente del canal 1", () => {

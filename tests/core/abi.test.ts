@@ -11,7 +11,7 @@ const GB_EXPORTS = [
   "gb_cgb_mode", "gb_audio", "gb_audio_buffer", "gb_vram", "gb_wram", "gb_oam", "gb_hram",
   "gb_palettes", "gb_io", "gb_peek", "gb_rom_bank", "gb_joypad", "gb_load_sav", "gb_save_sav",
   "gb_rtc_advance", "gb_save_state", "gb_load_state", "gb_bp_set", "gb_bp_clear_all",
-  "gb_poke", "gb_set_pc",
+  "gb_poke", "gb_set_pc", "gb_wp_set", "gb_wp_clear_all", "gb_wp_addr",
 ];
 const HOOKS = [
   "gb_t_run_until", "gb_t_buslog_enable", "gb_t_buslog", "gb_t_buslog_len", "gb_t_serial_log",
@@ -66,5 +66,28 @@ describe("ABI", () => {
     expect(x.gb_run_frame()).toBe(0);
     expect(x.gb_frame()).toBe(1);
     expect(x.gb_cycles_lo()).toBeGreaterThanOrEqual(70224);
+  });
+
+  // Oráculo: la semántica declarada en gb.h (GB_STOP_WATCHPOINT: la instrucción que
+  // escribe ya se ha ejecutado; gb_wp_addr da la dirección escrita).
+  it("watchpoint de escritura: para tras la instrucción que escribe en el rango", async () => {
+    const x = (await instantiate("core")).exports as Record<string, any>;
+    x.gb_init();
+    const rom = new Uint8Array(x.memory.buffer, x.gb_rom(), 0x8000);
+    rom.fill(0);
+    // 0100: LD A,$42 · 0102: LD ($C010),A · 0105: JR 0105
+    rom.set([0x3E, 0x42, 0xEA, 0x10, 0xC0, 0x18, 0xFE], 0x100);
+    expect(x.gb_insert(0x8000)).toBe(0);
+    expect(x.gb_wp_set(0xC000, 0xC0FF, 1)).toBe(0);
+    expect(x.gb_run_frame()).toBe(3);
+    expect(x.gb_wp_addr()).toBe(0xC010);
+    expect(x.gb_peek(0xC010)).toBe(0x42);
+    const regs = new RegsView(x.memory, x.gb_regs());
+    expect(regs.pc).toBe(0x105);
+    // El bucle ya no escribe: el siguiente frame termina sin parar.
+    expect(x.gb_run_frame()).toBe(0);
+    x.gb_wp_clear_all();
+    x.gb_set_pc(0x100);
+    expect(x.gb_run_frame()).toBe(0);
   });
 });

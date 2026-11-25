@@ -40,6 +40,38 @@ describe("PPU-05/06 por E/S", () => {
       .toEqual([0x33, 0x42, 0xc0, 0x00, 0x84, 0xc2, 0x00]);
   });
 
+  // La PPU sólo despierta a la máquina en los sucesos que pueden pedir IRQ con la
+  // configuración de STAT/LYC (ppu_next_event). Con HALT la CPU sólo ve el IF que el
+  // planificador le entrega a tiempo: si un suceso no se programa, la CPU se despierta en
+  // otro (VBlank, otra línea) y LY/STAT lo delatan. Oráculo: docs §7.2 (Pan Docs "STAT
+  // interrupt"): LYC en el punto 4 de la línea LYC (modo 2), modo 0 al acabar el modo 3,
+  // modo 2 en la línea 0 en el punto 4.
+  it.skipIf(!realCpu)(`HALT despierta con la IRQ de STAT de cada fuente${why}`, async () => {
+    for (const { stat, lyc, ly, mode } of [
+      { stat: 0x40, lyc: 50, ly: 50, mode: 2 },
+      { stat: 0x40, lyc: 150, ly: 150, mode: 1 },
+      { stat: 0x08, lyc: 200, ly: 0, mode: 0 },
+      { stat: 0x20, lyc: 200, ly: 0, mode: 2 },
+    ]) {
+      const x = await probe();
+      // prettier-ignore
+      boot(x, makeRom(true, [
+        0xf3,                     // DI (arranca en la línea 144, ya pasado el punto 5)
+        0x3e, lyc, 0xe0, 0x45,    // LYC
+        0x3e, stat, 0xe0, 0x41,   // STAT
+        0x3e, 0x02, 0xe0, 0xff,   // IE = STAT
+        0xaf, 0xe0, 0x0f,         // IF = 0
+        0x76,                     // HALT (IME = 0: sale sin atender la IRQ)
+        0xf0, 0x44, 0xe0, 0x80,   // [FF80] = LY
+        0xf0, 0x41, 0xe0, 0x81,   // [FF81] = STAT
+        0x18, 0xfe,
+      ]));
+      x.gb_run_frame();
+      x.gb_run_frame();
+      expect({ stat, ly: x.gb_peek(0xff80), mode: x.gb_peek(0xff81) & 3 }).toEqual({ stat, ly, mode });
+    }
+  });
+
   it.skipIf(!realCpu)(`VRAM bloqueada en modo 3, OAM en modos 2-3${why}`, async () => {
     const x = await probe();
     // prettier-ignore

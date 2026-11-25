@@ -112,6 +112,7 @@ uint8_t   ppu_read(uint16_t addr);
 void      ppu_write(uint16_t addr, uint8_t v);
 int       ppu_vram_blocked(void);
 int       ppu_oam_blocked(void);
+int       ppu_oam_write_blocked(void);  /* la ventana de escritura de OAM difiere de la de lectura (§7.8) */
 int       ppu_hblank(void);
 uint8_t  *ppu_framebuffer(void);
 uint8_t  *ppu_palettes(void);
@@ -167,5 +168,11 @@ extern uint32_t debug_bp_count;
 int       debug_is_bp(uint16_t pc);         /* tiene en cuenta el banco mapeado */
 void      debug_bp_set(int32_t bank, uint16_t addr, int on);
 void      debug_bp_clear_all(void);
+/* Watchpoints de escritura: bus_write llama a debug_wp_check sólo si debug_wp_count;
+ * run_until consulta debug_wp_hit en la frontera de instrucción. */
+extern uint32_t debug_wp_count, debug_wp_hit, debug_wp_addr;
+void      debug_wp_check(uint16_t addr);
+int       debug_wp_set(uint16_t lo, uint16_t hi, int on);
+void      debug_wp_clear_all(void);
 
 #endif /* MACHINE_H */

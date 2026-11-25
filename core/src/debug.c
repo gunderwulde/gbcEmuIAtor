@@ -28,11 +28,6 @@ static uint8_t  bp_map[65536 / 8];
 static int16_t  bp_bank[65536];        /* sólo significativo si el bit está puesto */
 static struct { uint16_t lo, hi; } wp[DEBUG_WP_MAX];
 
-/* Declaradas aquí hasta que machine.h las incluya (las llama gbc.c / gb.h). */
-void debug_wp_check(uint16_t addr);
-int  debug_wp_set(uint16_t lo, uint16_t hi, int on);
-void debug_wp_clear_all(void);
-
 static void recount(void) { debug_bp_count = bp_n + debug_wp_count; }
 
 int debug_is_bp(uint16_t pc)

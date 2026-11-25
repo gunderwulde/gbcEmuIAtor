@@ -64,6 +64,7 @@ enum {
     GB_STOP_FRAME      = 0,   /* frame completo (70 224 puntos) */
     GB_STOP_BREAKPOINT = 1,   /* PC alcanzó un breakpoint (la instrucción NO se ha ejecutado) */
     GB_STOP_STEP       = 2,   /* gb_step terminó */
+    GB_STOP_WATCHPOINT = 3,   /* una escritura cayó en un watchpoint (la instrucción SÍ se ha ejecutado) */
 };
 
 /* ---- Errores de carga ---- */
@@ -135,6 +136,9 @@ GB_EXPORT(gb_load_state)  int      gb_load_state(uint32_t len);
 /* ---- Depuración ---- */
 GB_EXPORT(gb_bp_set)       void gb_bp_set(int32_t bank, uint32_t addr, uint32_t on); /* bank −1 = cualquiera */
 GB_EXPORT(gb_bp_clear_all) void gb_bp_clear_all(void);
+GB_EXPORT(gb_wp_set)       int  gb_wp_set(uint32_t lo, uint32_t hi, uint32_t on);   /* watchpoint de escritura [lo,hi]; −1 si no caben más */
+GB_EXPORT(gb_wp_clear_all) void gb_wp_clear_all(void);
+GB_EXPORT(gb_wp_addr)      uint32_t gb_wp_addr(void);    /* dirección de la última escritura que paró */
 GB_EXPORT(gb_poke)         void gb_poke(uint32_t addr, uint32_t value);  /* escritura sin efectos de E/S ni tiempo; ROM ignorada */
 GB_EXPORT(gb_set_pc)       void gb_set_pc(uint32_t addr);                /* también sale de HALT/STOP */
 

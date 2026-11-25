@@ -87,3 +87,27 @@ A/B en la misma ejecución (9×128 frames), núcleo previo frente a E1+E3:
 Mismos hashes de framebuffer y audio; `tests/core` 581/581. `render_pixel` se ha borrado
 (ya no la usaba nadie) y sus comentarios de hardware han pasado a `render_span`.
 `bench/baseline.json` se regenera con este núcleo.
+
+## Correcciones de exactitud de la fase 2 (X-PPU, X-APU, X-GBC)
+
+La línea de tiempo de la PPU según SameBoy, los retardos y la alineación de la APU y las
+correcciones de máquina y cartucho hacen pasar ≈ 77 tests de exactitud más (fallos
+conocidos: 127 → 50). Primera integración frente a E1+E3: +4…+17 %. Tras la revisión:
+
+- **PPU:** los bloqueos de VRAM, OAM y paletas se calculan del punto al acceder (no como
+  eventos), y la máquina sólo despierta por las fuentes de STAT habilitadas o por HDMA.
+  Con la APU de E1+E3, la PPU nueva mide −1,6/−2,0 % (mín.) frente a E1+E3: no cuesta.
+- **APU:** cuenta atrás del flanco del ruido precalculada y arreglo del barrido congelado
+  (que forzaba tramos de 2 ticks); salida idéntica bit a bit, ±0 a −3 %.
+
+A/B final (15×128 frames, máquina con carga):
+
+| escenario | E1+E3 | fase 2 | cambio |
+|---|---|---|---|
+| heavy | 0,890 ms (18,8×) | 0,923 ms (18,1×) | +3,7 % |
+| idle | 0,710 ms (23,6×) | 0,747 ms (22,4×) | +5,2 % |
+
+Se acepta por encima del 2 %: el coste restante es el de los retardos de disparo y la
+alineación con el reloj de 2 MHz de la APU (APU-1), que piden trocear el avance en los
+puntos en que el hardware cambia de estado. Pendiente: APU por eventos (techo medido
+−8 %) y E2. `bench/baseline.json` se regenera con este núcleo.

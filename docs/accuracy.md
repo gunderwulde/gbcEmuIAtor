@@ -73,13 +73,13 @@ El modelo emulado es el CGB con CPU CGB-E (AGENTS.md §1). Un test no aplica si:
 
 | Suite | Pasa | Falla (conocido) | n.a. |
 |---|---|---|---|
-| Blargg | 17 | 1 | 0 |
-| mooneye | 76 | 9 | 30 |
-| SameSuite | 12 | 57 | 9 |
-| Mealybug Tearoom | 2 | 28 | 5 |
-| AGE | 2 | 32 | 13 |
+| Blargg | 18 | 0 | 0 |
+| mooneye | 79 | 6 | 30 |
+| SameSuite | 69 | 0 | 9 |
+| Mealybug Tearoom | 3 | 27 | 5 |
+| AGE | 17 | 17 | 13 |
 | rtc3test | 3 | 0 | 0 |
-| **Total** | **112** | **127** | **57** |
+| **Total** | **189** | **50** | **57** |
 
 Fuera de `tests/accuracy`:
 
@@ -96,6 +96,13 @@ instrucciones de mooneye, Blargg `cpu_instrs`/`instr_timing`/`mem_timing*`/`halt
 
 Ordenados por impacto (número de tests que explican). Las líneas son las de `core/src`
 al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
+
+**Estado tras la tanda de correcciones de la fase 2 (X-PPU, X-APU, X-GBC):** resueltos
+PPU-3, APU-1, APU-2, APU-3, GBC-2, GBC-4, CART-1 y parte de GBC-3 y GBC-5. Siguen
+abiertos PPU-1 (33), PPU-2 (12), PPU-4 (1), GBC-1 (1), GBC-3 (2) y GBC-5 (1); la lista
+viva es `tests/accuracy/known-failures.ts`. La línea de tiempo de la PPU ya sigue a
+SameBoy (docs/gbc-hardware.md §7.1–7.8); lo que queda de PPU-2 apunta al muestreo de
+IRQ de la CPU (sin confirmar). El texto de abajo describe el estado al cerrar C2.
 
 ### ppu.c
 
@@ -158,7 +165,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
   
   [VERIFICAR] los valores exactos frente al código de mooneye/AGE antes de tocar nada.
 
-**PPU-3: ventanas de bloqueo de VRAM y OAM**
+**PPU-3: ventanas de bloqueo de VRAM y OAM** — *resuelto*
 
 - **Explica 6 tests**: AGE `oam-read-cgbE/ncmE`, `oam-write-cgbBCE/ncmBCE` y
   `vram-read-cgbBCE/ncmBCE`.
@@ -195,7 +202,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
 
 ### apu.c
 
-**APU-1: sin retardos de disparo ni alineación con el reloj de la APU**
+**APU-1: sin retardos de disparo ni alineación con el reloj de la APU** — *resuelto*
 
 - **Explica 46 tests**: SameSuite `channel_1/2/3/4` (45) y Blargg
   `cgb_sound/09-wave read while on`.
@@ -228,7 +235,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
 
   [VERIFICAR] las constantes contra las ROMs de SameSuite antes de fijarlas.
 
-**APU-2: falta el modo zombi de NRx2**
+**APU-2: falta el modo zombi de NRx2** — *resuelto*
 
 - **Explica 6 tests**: SameSuite `channel_1/2_nrx2_glitch`, `_nrx2_speed_change` y
   `_restart_nrx2_glitch`.
@@ -241,7 +248,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
 - **Hipótesis**: implementar `nrx2_glitch` de SameBoy para revisión E. Depende también de
   APU-1, porque estos tests leen PCM en ciclos concretos.
 
-**APU-3: fase del secuenciador de frame tras escribir DIV con el bit 10 a 1**
+**APU-3: fase del secuenciador de frame tras escribir DIV con el bit 10 a 1** — *resuelto*
 
 - **Explica 3 tests**: SameSuite `div_trigger_volume_10`, `div_write_trigger_10` y
   `div_write_trigger_volume_10`. Las variantes sin `_10` pasan.
@@ -294,7 +301,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
   `hdma_pending = 1`. Revisar el retardo entre el inicio del modo 0 y la copia para
   `hdma_timing-C` [VERIFICAR].
 
-**GBC-2: máscara de la dirección de origen de GDMA/HDMA**
+**GBC-2: máscara de la dirección de origen de GDMA/HDMA** — *resuelto*
 
 - **Explica 1 test**: SameSuite `gdma_addr_mask`.
 - **Dónde**: `dma_source_read` (gbc.c:158-169) lee VRAM para 8000-9FFF y WRAM (eco) para
@@ -305,7 +312,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
 - **Hipótesis**: una lectura de origen propia para HDMA que devuelva FFh en esos rangos.
   La de la OAM DMA no cambia: `oam_dma/sources` pasa en su variante aplicable.
 
-**GBC-4: glitch de TAC (`rapid_toggle`)**
+**GBC-4: glitch de TAC (`rapid_toggle`)** — *resuelto*
 
 - **Explica 1 test**: mooneye `acceptance/timer/rapid_toggle`.
 - **Dónde**: la escritura en TAC (gbc.c:257-262) hace
@@ -341,7 +348,7 @@ al cerrar C2. Son hipótesis para el dueño de cada fichero: C2 no toca `core/`.
 
 ### cart.c
 
-**CART-1: fase del divisor de sub-segundo del RTC del MBC3**
+**CART-1: fase del divisor de sub-segundo del RTC del MBC3** — *resuelto*
 
 - **Explica 1 test**: Mealybug `mbc/mbc3_rtc`.
 - **Dónde**:
@@ -390,14 +397,14 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | Test | Resultado | Motivo / hallazgo |
 |---|---|---|
 | `halt/ei-halt-dmgC-cgbBCE` | pasa |  |
-| `halt/halt-m0-interrupt-dmgC-cgbBCE` | falla | PPU-2 |
+| `halt/halt-m0-interrupt-dmgC-cgbBCE` | pasa |  |
 | `halt/halt-prefetch-dmgC-cgbBCE` | pasa |  |
 | `lcd-align-ly/lcd-align-ly-cgbBC` | n.a. | otro modelo/revisión (sufijo AGE) |
 | `lcd-align-ly/lcd-align-ly-cgbE` | falla | PPU-2 |
-| `ly/ly-cgbE` | falla | PPU-2 |
+| `ly/ly-cgbE` | pasa |  |
 | `ly/ly-dmgC-cgbBC` | n.a. | otro modelo/revisión (sufijo AGE) |
 | `ly/ly-ncmBC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `ly/ly-ncmE` | falla | PPU-2 |
+| `ly/ly-ncmE` | pasa |  |
 | `m3-bg-bgp/m3-bg-bgp` | falla | PPU-1 |
 | `m3-bg-lcdc/m3-bg-lcdc` | falla | PPU-1 |
 | `m3-bg-lcdc/m3-bg-lcdc-ds` | falla | PPU-1 |
@@ -405,21 +412,21 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `m3-bg-scx/m3-bg-scx` | falla | PPU-1 |
 | `m3-bg-scx/m3-bg-scx-ds` | falla | PPU-1 |
 | `m3-bg-scx/m3-bg-scx-nocgb` | falla | PPU-1 |
-| `oam/oam-read-cgbE` | falla | PPU-3 |
+| `oam/oam-read-cgbE` | pasa |  |
 | `oam/oam-read-dmgC-cgbBC` | n.a. | otro modelo/revisión (sufijo AGE) |
 | `oam/oam-read-ncmBC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `oam/oam-read-ncmE` | falla | PPU-3 |
-| `oam/oam-write-cgbBCE` | falla | PPU-3 |
+| `oam/oam-read-ncmE` | pasa |  |
+| `oam/oam-write-cgbBCE` | pasa |  |
 | `oam/oam-write-dmgC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `oam/oam-write-ncmBCE` | falla | PPU-3 |
+| `oam/oam-write-ncmBCE` | pasa |  |
 | `speed-switch/caution/spsw-interrupts-cgbBC` | n.a. | la suite advierte que puede dañar el hardware |
 | `speed-switch/caution/spsw-interrupts-cgbE` | n.a. | la suite advierte que puede dañar el hardware |
 | `speed-switch/spsw-ch2-lc-delay-cgbBCE` | falla | GBC-3 |
-| `speed-switch/spsw-div-cgbBCE` | falla | GBC-3 |
-| `speed-switch/spsw-mode0-cgbBCE` | falla | GBC-3 |
+| `speed-switch/spsw-div-cgbBCE` | pasa |  |
+| `speed-switch/spsw-mode0-cgbBCE` | pasa |  |
 | `speed-switch/spsw-stop-prefetch-cgbBCE` | falla | GBC-3 |
 | `speed-switch/spsw-tima-cgbBC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `speed-switch/spsw-tima-cgbE` | falla | GBC-3 |
+| `speed-switch/spsw-tima-cgbE` | pasa |  |
 | `stat-interrupt/stat-int-dmgC-cgbBCE` | falla | PPU-2 |
 | `stat-interrupt/stat-int-ncmBCE` | falla | PPU-2 |
 | `stat-mode-sprites/stat-mode-sprites-dmgC-cgbBCE` | falla | PPU-2 |
@@ -428,14 +435,14 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `stat-mode-window/stat-mode-window-dmgC` | n.a. | otro modelo/revisión (sufijo AGE) |
 | `stat-mode-window/stat-mode-window-ds-cgbBCE` | falla | PPU-2 |
 | `stat-mode-window/stat-mode-window-ncmBCE` | falla | PPU-2 |
-| `stat-mode/stat-mode-cgbE` | falla | PPU-2 |
+| `stat-mode/stat-mode-cgbE` | pasa |  |
 | `stat-mode/stat-mode-dmgC-cgbBC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `stat-mode/stat-mode-ds-cgbBCE` | falla | PPU-2 |
+| `stat-mode/stat-mode-ds-cgbBCE` | pasa |  |
 | `stat-mode/stat-mode-ncmBC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `stat-mode/stat-mode-ncmE` | falla | PPU-2 |
-| `vram/vram-read-cgbBCE` | falla | PPU-3 |
+| `stat-mode/stat-mode-ncmE` | pasa |  |
+| `vram/vram-read-cgbBCE` | pasa |  |
 | `vram/vram-read-dmgC` | n.a. | otro modelo/revisión (sufijo AGE) |
-| `vram/vram-read-ncmBCE` | falla | PPU-3 |
+| `vram/vram-read-ncmBCE` | pasa |  |
 
 ### Blargg
 
@@ -449,7 +456,7 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `cgb_sound/rom_singles/06-overflow on trigger` | pasa |  |
 | `cgb_sound/rom_singles/07-len sweep period sync` | pasa |  |
 | `cgb_sound/rom_singles/08-len ctr during power` | pasa |  |
-| `cgb_sound/rom_singles/09-wave read while on` | falla | APU-1 |
+| `cgb_sound/rom_singles/09-wave read while on` | pasa |  |
 | `cgb_sound/rom_singles/10-wave trigger while on` | pasa |  |
 | `cgb_sound/rom_singles/11-regs after power` | pasa |  |
 | `cgb_sound/rom_singles/12-wave` | pasa |  |
@@ -466,7 +473,7 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 |---|---|---|
 | `dma/hdma_during_halt-C` | pasa |  |
 | `dma/hdma_timing-C` | falla | GBC-1 |
-| `mbc/mbc3_rtc` | falla | CART-1 |
+| `mbc/mbc3_rtc` | pasa |  |
 | `ppu/m2_win_en_toggle` | pasa |  |
 | `ppu/m3_bgp_change` | falla | PPU-1 |
 | `ppu/m3_bgp_change_sprites` | falla | PPU-1 |
@@ -556,7 +563,7 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `acceptance/ppu/lcdon_timing-GS` | n.a. | otro modelo (sufijo de mooneye) |
 | `acceptance/ppu/lcdon_write_timing-GS` | n.a. | otro modelo (sufijo de mooneye) |
 | `acceptance/ppu/stat_irq_blocking` | pasa |  |
-| `acceptance/ppu/stat_lyc_onoff` | falla | PPU-4 |
+| `acceptance/ppu/stat_lyc_onoff` | pasa |  |
 | `acceptance/ppu/vblank_stat_intr-GS` | n.a. | otro modelo (sufijo de mooneye) |
 | `acceptance/push_timing` | pasa |  |
 | `acceptance/rapid_di_ei` | pasa |  |
@@ -567,7 +574,7 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `acceptance/rst_timing` | pasa |  |
 | `acceptance/serial/boot_sclk_align-dmgABCmgb` | n.a. | otro modelo (sufijo de mooneye) |
 | `acceptance/timer/div_write` | pasa |  |
-| `acceptance/timer/rapid_toggle` | falla | GBC-4 |
+| `acceptance/timer/rapid_toggle` | pasa |  |
 | `acceptance/timer/tim00` | pasa |  |
 | `acceptance/timer/tim00_div_trigger` | pasa |  |
 | `acceptance/timer/tim01` | pasa |  |
@@ -612,7 +619,7 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 | `misc/bits/unused_hwio-C` | pasa |  |
 | `misc/boot_div-A` | n.a. | otro modelo (sufijo de mooneye) |
 | `misc/boot_div-cgb0` | n.a. | otro modelo (sufijo de mooneye) |
-| `misc/boot_div-cgbABCDE` | falla | GBC-5 |
+| `misc/boot_div-cgbABCDE` | pasa |  |
 | `misc/boot_hwio-C` | falla | GBC-5 |
 | `misc/boot_regs-A` | n.a. | otro modelo (sufijo de mooneye) |
 | `misc/boot_regs-cgb` | pasa |  |
@@ -632,80 +639,80 @@ Los nombres son relativos a la carpeta de la suite. «Falla» es un fallo conoci
 
 | Test | Resultado | Motivo / hallazgo |
 |---|---|---|
-| `apu/channel_1/channel_1_align` | falla | APU-1 |
-| `apu/channel_1/channel_1_align_cpu` | falla | APU-1 |
-| `apu/channel_1/channel_1_delay` | falla | APU-1 |
-| `apu/channel_1/channel_1_duty` | falla | APU-1 |
-| `apu/channel_1/channel_1_duty_delay` | falla | APU-1 |
+| `apu/channel_1/channel_1_align` | pasa |  |
+| `apu/channel_1/channel_1_align_cpu` | pasa |  |
+| `apu/channel_1/channel_1_delay` | pasa |  |
+| `apu/channel_1/channel_1_duty` | pasa |  |
+| `apu/channel_1/channel_1_duty_delay` | pasa |  |
 | `apu/channel_1/channel_1_extra_length_clocking-cgb0B` | n.a. | sólo revisión cgb0B (no CGB-E) |
-| `apu/channel_1/channel_1_freq_change` | falla | APU-1 |
+| `apu/channel_1/channel_1_freq_change` | pasa |  |
 | `apu/channel_1/channel_1_freq_change_timing-A` | n.a. | sólo revisión A (no CGB-E) |
 | `apu/channel_1/channel_1_freq_change_timing-cgb0BC` | n.a. | sólo revisión cgb0BC (no CGB-E) |
-| `apu/channel_1/channel_1_freq_change_timing-cgbDE` | falla | APU-1 |
-| `apu/channel_1/channel_1_nrx2_glitch` | falla | APU-2 |
-| `apu/channel_1/channel_1_nrx2_speed_change` | falla | APU-2 |
-| `apu/channel_1/channel_1_restart` | falla | APU-1 |
-| `apu/channel_1/channel_1_restart_nrx2_glitch` | falla | APU-2 |
-| `apu/channel_1/channel_1_stop_div` | falla | APU-1 |
-| `apu/channel_1/channel_1_stop_restart` | falla | APU-1 |
-| `apu/channel_1/channel_1_sweep` | falla | APU-1 |
-| `apu/channel_1/channel_1_sweep_restart` | falla | APU-1 |
-| `apu/channel_1/channel_1_sweep_restart_2` | falla | APU-1 |
-| `apu/channel_1/channel_1_volume` | falla | APU-1 |
-| `apu/channel_1/channel_1_volume_div` | falla | APU-1 |
-| `apu/channel_2/channel_2_align` | falla | APU-1 |
-| `apu/channel_2/channel_2_align_cpu` | falla | APU-1 |
-| `apu/channel_2/channel_2_delay` | falla | APU-1 |
-| `apu/channel_2/channel_2_duty` | falla | APU-1 |
-| `apu/channel_2/channel_2_duty_delay` | falla | APU-1 |
+| `apu/channel_1/channel_1_freq_change_timing-cgbDE` | pasa |  |
+| `apu/channel_1/channel_1_nrx2_glitch` | pasa |  |
+| `apu/channel_1/channel_1_nrx2_speed_change` | pasa |  |
+| `apu/channel_1/channel_1_restart` | pasa |  |
+| `apu/channel_1/channel_1_restart_nrx2_glitch` | pasa |  |
+| `apu/channel_1/channel_1_stop_div` | pasa |  |
+| `apu/channel_1/channel_1_stop_restart` | pasa |  |
+| `apu/channel_1/channel_1_sweep` | pasa |  |
+| `apu/channel_1/channel_1_sweep_restart` | pasa |  |
+| `apu/channel_1/channel_1_sweep_restart_2` | pasa |  |
+| `apu/channel_1/channel_1_volume` | pasa |  |
+| `apu/channel_1/channel_1_volume_div` | pasa |  |
+| `apu/channel_2/channel_2_align` | pasa |  |
+| `apu/channel_2/channel_2_align_cpu` | pasa |  |
+| `apu/channel_2/channel_2_delay` | pasa |  |
+| `apu/channel_2/channel_2_duty` | pasa |  |
+| `apu/channel_2/channel_2_duty_delay` | pasa |  |
 | `apu/channel_2/channel_2_extra_length_clocking-cgb0B` | n.a. | sólo revisión cgb0B (no CGB-E) |
-| `apu/channel_2/channel_2_freq_change` | falla | APU-1 |
-| `apu/channel_2/channel_2_nrx2_glitch` | falla | APU-2 |
-| `apu/channel_2/channel_2_nrx2_speed_change` | falla | APU-2 |
-| `apu/channel_2/channel_2_restart` | falla | APU-1 |
-| `apu/channel_2/channel_2_restart_nrx2_glitch` | falla | APU-2 |
-| `apu/channel_2/channel_2_stop_div` | falla | APU-1 |
-| `apu/channel_2/channel_2_stop_restart` | falla | APU-1 |
-| `apu/channel_2/channel_2_volume` | falla | APU-1 |
-| `apu/channel_2/channel_2_volume_div` | falla | APU-1 |
-| `apu/channel_3/channel_3_and_glitch` | falla | APU-1 |
-| `apu/channel_3/channel_3_delay` | falla | APU-1 |
+| `apu/channel_2/channel_2_freq_change` | pasa |  |
+| `apu/channel_2/channel_2_nrx2_glitch` | pasa |  |
+| `apu/channel_2/channel_2_nrx2_speed_change` | pasa |  |
+| `apu/channel_2/channel_2_restart` | pasa |  |
+| `apu/channel_2/channel_2_restart_nrx2_glitch` | pasa |  |
+| `apu/channel_2/channel_2_stop_div` | pasa |  |
+| `apu/channel_2/channel_2_stop_restart` | pasa |  |
+| `apu/channel_2/channel_2_volume` | pasa |  |
+| `apu/channel_2/channel_2_volume_div` | pasa |  |
+| `apu/channel_3/channel_3_and_glitch` | pasa |  |
+| `apu/channel_3/channel_3_delay` | pasa |  |
 | `apu/channel_3/channel_3_extra_length_clocking-cgb0` | n.a. | sólo revisión cgb0 (no CGB-E) |
 | `apu/channel_3/channel_3_extra_length_clocking-cgbB` | n.a. | sólo revisión cgbB (no CGB-E) |
-| `apu/channel_3/channel_3_first_sample` | falla | APU-1 |
-| `apu/channel_3/channel_3_freq_change_delay` | falla | APU-1 |
-| `apu/channel_3/channel_3_restart_delay` | falla | APU-1 |
-| `apu/channel_3/channel_3_restart_during_delay` | falla | APU-1 |
-| `apu/channel_3/channel_3_restart_stop_delay` | falla | APU-1 |
-| `apu/channel_3/channel_3_shift_delay` | falla | APU-1 |
-| `apu/channel_3/channel_3_shift_skip_delay` | falla | APU-1 |
+| `apu/channel_3/channel_3_first_sample` | pasa |  |
+| `apu/channel_3/channel_3_freq_change_delay` | pasa |  |
+| `apu/channel_3/channel_3_restart_delay` | pasa |  |
+| `apu/channel_3/channel_3_restart_during_delay` | pasa |  |
+| `apu/channel_3/channel_3_restart_stop_delay` | pasa |  |
+| `apu/channel_3/channel_3_shift_delay` | pasa |  |
+| `apu/channel_3/channel_3_shift_skip_delay` | pasa |  |
 | `apu/channel_3/channel_3_stop_delay` | pasa |  |
 | `apu/channel_3/channel_3_stop_div` | pasa |  |
 | `apu/channel_3/channel_3_wave_ram_dac_on_rw` | pasa |  |
-| `apu/channel_3/channel_3_wave_ram_locked_write` | falla | APU-1 |
-| `apu/channel_3/channel_3_wave_ram_sync` | falla | APU-1 |
-| `apu/channel_4/channel_4_align` | falla | APU-1 |
-| `apu/channel_4/channel_4_delay` | falla | APU-1 |
-| `apu/channel_4/channel_4_equivalent_frequencies` | falla | APU-1 |
+| `apu/channel_3/channel_3_wave_ram_locked_write` | pasa |  |
+| `apu/channel_3/channel_3_wave_ram_sync` | pasa |  |
+| `apu/channel_4/channel_4_align` | pasa |  |
+| `apu/channel_4/channel_4_delay` | pasa |  |
+| `apu/channel_4/channel_4_equivalent_frequencies` | pasa |  |
 | `apu/channel_4/channel_4_extra_length_clocking-cgb0B` | n.a. | sólo revisión cgb0B (no CGB-E) |
-| `apu/channel_4/channel_4_freq_change` | falla | APU-1 |
-| `apu/channel_4/channel_4_frequency_alignment` | falla | APU-1 |
+| `apu/channel_4/channel_4_freq_change` | pasa |  |
+| `apu/channel_4/channel_4_frequency_alignment` | pasa |  |
 | `apu/channel_4/channel_4_lfsr` | pasa |  |
 | `apu/channel_4/channel_4_lfsr_15_7` | pasa |  |
-| `apu/channel_4/channel_4_lfsr_7_15` | falla | APU-1 |
-| `apu/channel_4/channel_4_lfsr_restart` | falla | APU-1 |
-| `apu/channel_4/channel_4_lfsr_restart_fast` | falla | APU-1 |
+| `apu/channel_4/channel_4_lfsr_7_15` | pasa |  |
+| `apu/channel_4/channel_4_lfsr_restart` | pasa |  |
+| `apu/channel_4/channel_4_lfsr_restart_fast` | pasa |  |
 | `apu/channel_4/channel_4_lfsr15` | pasa |  |
 | `apu/channel_4/channel_4_volume_div` | pasa |  |
-| `apu/div_trigger_volume_10` | falla | APU-3 |
+| `apu/div_trigger_volume_10` | pasa |  |
 | `apu/div_write_trigger` | pasa |  |
-| `apu/div_write_trigger_10` | falla | APU-3 |
+| `apu/div_write_trigger_10` | pasa |  |
 | `apu/div_write_trigger_volume` | pasa |  |
-| `apu/div_write_trigger_volume_10` | falla | APU-3 |
+| `apu/div_write_trigger_volume_10` | pasa |  |
 | `dma/gbc_dma_cont` | pasa |  |
-| `dma/gdma_addr_mask` | falla | GBC-2 |
-| `dma/hdma_lcd_off` | falla | GBC-1 |
-| `dma/hdma_mode0` | falla | GBC-1 |
+| `dma/gdma_addr_mask` | pasa |  |
+| `dma/hdma_lcd_off` | pasa |  |
+| `dma/hdma_mode0` | pasa |  |
 | `interrupt/ei_delay_halt` | pasa |  |
 | `ppu/blocking_bgpi_increase` | pasa |  |
 | `sgb/command_mlt_req` | n.a. | SGB fuera de alcance |

@@ -189,7 +189,8 @@ static uint8_t io_read(uint16_t a)
     case 0xFF0F: return (uint8_t)(gb.ifr | 0xE0);
     case 0xFF46: return gb.dma_reg;
     case 0xFF4D: return gb.cgb ? (uint8_t)(0x7E | gb.double_speed << 7 | gb.key1_armed) : 0xFF;
-    case 0xFF4F: return gb.cgb ? (uint8_t)(0xFE | gb.vbk) : 0xFF;
+    /* También en compatibilidad DMG se lee FEh | banco (mooneye misc/boot_hwio-C). */
+    case 0xFF4F: return (uint8_t)(0xFE | gb.vbk);
     case 0xFF55: return gb.cgb ? (uint8_t)(gb.hdma_active ? gb.hdma_len : (0x80 | gb.hdma_len)) : 0xFF;
     case 0xFF70: return gb.cgb ? (uint8_t)(0xF8 | gb.svbk) : 0xFF;
     case 0xFF72: return gb.undoc[0];
@@ -207,7 +208,10 @@ static uint8_t io_read(uint16_t a)
 static void hdma_copy_block(void)
 {
     for (int i = 0; i < 16; i++) {
-        uint8_t v = dma_source_read(gb.hdma_src);
+        /* La HDMA/GDMA no ve VRAM ni E000-FFFF como origen: lee FFh (SameSuite
+         * dma/gdma_addr_mask). La OAM DMA sí los ve (dma_source_read). */
+        uint16_t s = gb.hdma_src;
+        uint8_t v = ((s >> 13) == 4 || (s >> 13) == 7) ? 0xFF : dma_source_read(s);
         gb.vram[gb.vbk][gb.hdma_dst & 0x1FFF] = v;
         gb.hdma_src++;
         gb.hdma_dst = (uint16_t)(0x8000 | ((gb.hdma_dst + 1) & 0x1FFF));
@@ -255,9 +259,21 @@ static void io_write(uint16_t a, uint8_t v)
         if (gb.tima_state == 2) gb.tima = v;
         return;
     case 0xFF07: {
-        uint8_t old = gb.tac;
-        gb.tac = v & 7;
-        if (timer_bit(gb.div, old) && !timer_bit(gb.div, gb.tac)) tima_inc();
+        /* El multiplexor de TAC cambia antes del paso del contador de este ciclo M: se
+         * rehace ese paso con el TAC nuevo. Así aparecen los dos efectos del «glitch» de
+         * TAC: el flanco 1→0 al cambiar de bit o apagar (Pan Docs «Timer obscure
+         * behaviour») y el incremento perdido/ganado si el bit cae justo en este ciclo
+         * (mooneye acceptance/timer/rapid_toggle). [VERIFICAR] el orden interno exacto. */
+        uint8_t old = gb.tac, nw = v & 7;
+        uint16_t prev = (uint16_t)(gb.div - 4);
+        int done = timer_bit(prev, old) && !timer_bit(gb.div, old);
+        int want = (timer_bit(prev, old) && !timer_bit(prev, nw))
+                 + (timer_bit(prev, nw) && !timer_bit(gb.div, nw));
+        gb.tac = nw;
+        if (want > done) tima_inc();
+        else if (want < done) {
+            if (gb.tima_state == 1) { gb.tima = 0xFF; gb.tima_state = 0; } else gb.tima--;
+        }
         return;
     }
     case 0xFF0F: gb.ifr = v & 0x1F; return;
@@ -281,7 +297,15 @@ static void io_write(uint16_t a, uint8_t v)
             return;
         }
         gb.hdma_len = v & 0x7F;
-        if (v & 0x80) { gb.hdma_active = 1; return; }
+        if (v & 0x80) {
+            /* Arrancada en modo 0 (o con el LCD apagado, que lee modo 0) copia un bloque
+             * al instante; el HBlank ya empezado no vuelve a contar (docs §6). */
+            gb.hdma_active = 1;
+            if ((ppu_read(0xFF41) & 3) == 0) hdma_pending = 1;
+            (void)ppu_hblank();
+            machine_reschedule();   /* la PPU sólo despierta en HBlank si hay HDMA */
+            return;
+        }
         /* GDMA: todo de una vez con la CPU parada */
         ppu_catch_up();
         for (;;) {
@@ -360,7 +384,7 @@ static inline void mem_write(uint16_t a, uint8_t v)
         if (a < 0xFEA0) {
             if (gb.oam_dma_active) return;
             ppu_catch_up();
-            if (!ppu_oam_blocked()) gb.oam[a - 0xFE00] = v;
+            if (!ppu_oam_write_blocked()) gb.oam[a - 0xFE00] = v;
             return;
         }
         if (a < 0xFF00) return;
@@ -385,6 +409,7 @@ static inline __attribute__((always_inline)) uint8_t bus_read(uint16_t a)
 
 static inline __attribute__((always_inline)) void bus_write(uint16_t a, uint8_t v)
 {
+    if (debug_wp_count) debug_wp_check(a);
     m_cycle();
     mem_write(a, v);
     BUSLOG(a, 1, v);
@@ -399,16 +424,52 @@ static inline __attribute__((always_inline)) void bus_tick(void)
 static inline uint8_t bus_irq(void) { return gb.ie & gb.ifr & 0x1F; }
 static inline void bus_irq_ack(int bit) { gb.ifr &= (uint8_t)~(1u << bit); }
 
-/* STOP con KEY1.0 = 1: cambio de velocidad. La pausa dura ≈ 2 050 ciclos M y DIV se pone
- * a 0 (docs §9, [VERIFICAR M1]). Sin cambio pendiente la CPU queda parada hasta que se
- * pulse un botón. */
+/* STOP pone DIV a 0 (con el mismo flanco que una escritura en DIV). Sin cambio de
+ * velocidad pendiente la CPU queda parada hasta que se pulse un botón.
+ *
+ * Con KEY1.0 = 1 cambia la velocidad (docs §9). Lo fijan las ROMs AGE speed-switch:
+ * - La pausa dura 32 767 ciclos M en los que el contador de DIV, TIMA y la APU siguen
+ *   corriendo (spsw-tima: TIMA a 4 kHz avanza 80h). Como el contador se puso a 0 al
+ *   entrar, 32 767 × 4 = 1FFFCh lo deja a FFFCh y DIV se lee 00 justo después; el primer
+ *   paso de DIV llega 64 ciclos M después (spsw-div).
+ * - Entrando en doble velocidad, los 2 primeros ciclos M aún son de velocidad normal;
+ *   saliendo de ella, la pausa añade 1 punto de PPU suelto (la CPU queda desfasada medio
+ *   ciclo de 2 MHz respecto a la PPU). Lo fija la alineación LY/STAT de spsw-mode0.
+ *   [VERIFICAR]: es el único reparto que encaja con las 5 secciones del test, no una
+ *   descripción del circuito.
+ * - El byte siguiente a STOP no se salta: es el opcode que la CPU ya ha leído y se ejecuta
+ *   tras la pausa (spsw-stop-prefetch). Aquí se retrocede el PC y se vuelve a leer tras la
+ *   pausa: el tiempo es el mismo, pero si el byte cambia durante la pausa (E/S) se lee el
+ *   valor nuevo y no el ya captado; para eso hace falta que sm83.c guarde el opcode.
+ * - En CGB E, el reinicio de DIV de STOP muestrea el bit de 262 kHz un ciclo M más tarde
+ *   que los de 4/16/65 kHz (spsw-tima-cgbE; en CGB B, según spsw-tima-cgbBC, también los
+ *   de 16/65 kHz se muestrean tarde). */
+#define SPSW_MCYCLES 32767
+#define SPSW_SS_PREFIX 2     /* ciclos M en velocidad normal al pasar a doble */
+#define SPSW_DS_EXTRA_DOTS 1 /* punto suelto al volver a velocidad normal */
+
 static inline int bus_stop(void)
 {
+    uint16_t old = gb.div;
+    if (!gb.key1_armed) {
+        if (timer_bit(old, gb.tac)) tima_inc();
+        gb.div = 0;
+        apu_edge(old, 0);
+        return 0;
+    }
+    /* Con una IRQ pendiente STOP no ha leído su segundo byte (sm83.c): no hay que
+     * retroceder. [VERIFICAR] si la IRQ llegó justo en ese ciclo. */
+    int prefetched = !bus_irq();
+    if (timer_bit((gb.tac & 3) == 1 ? (uint16_t)(old + 4) : old, gb.tac)) tima_inc();
     gb.div = 0;
-    if (!gb.key1_armed) return 0;
+    apu_edge(old, 0);
     gb.key1_armed = 0;
+    int n_old = gb.double_speed ? 0 : SPSW_SS_PREFIX;
+    for (int i = 0; i < n_old; i++) m_cycle();
     gb.double_speed ^= 1;
-    for (int i = 0; i < 2050; i++) m_cycle();
+    if (!gb.double_speed) gb.now += SPSW_DS_EXTRA_DOTS;
+    for (int i = n_old; i < SPSW_MCYCLES; i++) m_cycle();
+    if (prefetched) gb.cpu.pc.w--;
     return 1;
 }
 
@@ -432,7 +493,10 @@ static void post_boot_state(void)
         r->bc.w = 0x0000; r->de.w = 0x0008; r->hl.w = 0x007C;
     }
     gb.ifr = IRQ_VBLANK;
-    gb.div = 0x1EA0;   /* [VERIFICAR M1] */
+    /* Fase del contador de DIV en el primer ciclo M de 0100h. La boot ROM tarda más con
+     * un cartucho DMG (elige la paleta de compatibilidad): 2674h la fija mooneye
+     * misc/boot_div-cgbABCDE (docs §11). Con cartucho CGB no hay test: [VERIFICAR]. */
+    gb.div = gb.cgb ? 0x1EA0 : 0x2674;
     gb.p1_sel = 0x30;
     gb.dma_reg = 0x00;
     gb.hdma_len = 0x7F;
@@ -510,6 +574,7 @@ static int run_until(uint64_t end)
             bp_skip = 0;
         }
         step_once();
+        if (debug_bp_count && debug_wp_hit) { debug_wp_hit = 0; return GB_STOP_WATCHPOINT; }
     }
     return GB_STOP_FRAME;
 }
@@ -532,6 +597,7 @@ int gb_step(void)
     if (gb_rom_size == 0) return GB_STOP_STEP;
     bp_skip = 0;
     step_once();
+    debug_wp_hit = 0;   /* un paso ya se detiene: el aviso no debe disparar el próximo run */
     if (gb.now >= gb.frame_end) { gb.frame_end += GB_DOTS_PER_FRAME; gb.frame++; }
     ppu_catch_up();
     return GB_STOP_STEP;
@@ -650,6 +716,9 @@ int gb_load_state(uint32_t len)
 
 void gb_bp_set(int32_t bank, uint32_t addr, uint32_t on) { debug_bp_set(bank, (uint16_t)addr, on != 0); }
 void gb_bp_clear_all(void) { debug_bp_clear_all(); }
+int gb_wp_set(uint32_t lo, uint32_t hi, uint32_t on) { return debug_wp_set((uint16_t)lo, (uint16_t)hi, on != 0); }
+void gb_wp_clear_all(void) { debug_wp_clear_all(); }
+uint32_t gb_wp_addr(void) { return debug_wp_addr; }
 
 /* ------------------------------------------------------------------------------------
  * Hooks de test

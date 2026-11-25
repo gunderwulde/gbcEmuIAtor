@@ -221,7 +221,8 @@ void cart_write(uint16_t a, uint8_t v)
                 uint8_t i = (uint8_t)(C.ram_bank - 8);
                 C.rtc.reg[i] = v & mask[i];
                 if (i == 0) C.rtc.sub = 0;   /* escribir los segundos reinicia el divisor */
-                C.rtc.latched[i] = C.rtc.reg[i];
+                /* Lo escrito no se lee hasta el siguiente latch (Mealybug mbc3_rtc,
+                 * TestWrittenValueIsNotReadableUntilLatched). */
                 C.dirty = 1;
                 return;
             }
