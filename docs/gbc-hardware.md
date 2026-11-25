@@ -182,14 +182,81 @@ modelo REF de PPU-02]`.
 
 ## 8. APU
 
-- Canales: 1 pulso con barrido, 2 pulso, 3 onda (32 muestras de 4 bits), 4 ruido (LFSR de
-  15/7 bits).
+Fuentes: Pan Docs ("Audio", "Audio Registers", "Audio details"), Blargg `cgb_sound`
+(readme y tests 01–12), SameSuite `apu/*`. Implementación: `core/src/apu.c`; tests:
+`tests/core/apu/`.
+
+### 8.1 Relojes
+- El reloj de la APU es el punto (4 194 304 Hz); **no** cambia con la doble velocidad.
 - Secuenciador de frame a 512 Hz, avanzado por el flanco descendente del bit 4 de DIV
-  (bit 5 en doble velocidad): longitud a 256 Hz, barrido a 128 Hz, envolvente a 64 Hz.
-- NR52 bit 7 = 0 apaga la APU y borra los registros (salvo la RAM de onda y, en CGB, los
-  contadores de longitud `[VERIFICAR M2]`).
-- PCM12/PCM34 (CGB): salida digital actual de cada canal (lo usa SameSuite).
-- Fuente: Pan Docs (Audio), Blargg `cgb_sound`, SameSuite `apu/*`.
+  (bit 12 del contador interno; bit 13 en doble velocidad, así sigue a 512 Hz). Escribir
+  en DIV puede producir ese flanco (lo resuelve gbc.c). Pasos 0–7: longitud en 0, 2, 4, 6
+  (256 Hz); barrido en 2 y 6 (128 Hz); envolvente en 7 (64 Hz).
+- Al encender (NR52.7 0 → 1) el secuenciador se reinicia: el próximo paso es el 0.
+
+### 8.2 Canales
+| Canal | Periodo del generador | Frecuencia | Notas |
+|---|---|---|---|
+| 1, 2 pulso | (2048 − x) × 4 puntos por paso, 8 pasos | 131 072 / (2048 − x) Hz | ciclos 12,5/25/50/75 %: `00000001`, `10000001`, `10000111`, `01111110` |
+| 3 onda | (2048 − x) × 2 puntos por muestra, 32 muestras | 65 536 / (2048 − x) Hz | nibble alto primero; NR32: mudo, 100 %, 50 %, 25 % (desplazamiento 4, 0, 1, 2) |
+| 4 ruido | (r ? 16·r : 8) << s puntos por paso del LFSR | 262 144 / (r·2^s) Hz (r = 0 → 0,5) | s ≥ 14: el LFSR no avanza |
+
+- LFSR: 15 bits a 7FFFh al disparar; bit nuevo = b0 XOR b1 al bit 14 (y también al 6 con
+  NR43.3); salida = volumen si b0 = 0.
+- Longitud: 64 pasos (256 en el canal 3), `len = máx − NRx1`; a 0 apaga el canal.
+- Envolvente: periodo 0 = parada; sube/baja 1 dentro de 0–15; no apaga el canal.
+- Barrido (canal 1): al disparar, sombra = frecuencia, temporizador = periodo (0 → 8) y,
+  si el desplazamiento ≠ 0, cálculo inmediato con comprobación de desbordamiento (> 2047
+  apaga). En cada pulso con periodo ≠ 0: nueva frecuencia, se escribe en NR13/14 si el
+  desplazamiento ≠ 0, y segunda comprobación. Quitar NR10.3 tras haber calculado en modo
+  resta desde el disparo apaga el canal (Blargg 04/05).
+- DAC: canales 1, 2, 4 encendidos si NRx2 & F8h ≠ 0; canal 3 con NR30.7. Apagar el DAC
+  apaga el canal; disparar con el DAC apagado no lo enciende.
+- Disparo (NRx4.7): enciende el canal, longitud 0 → máxima, recarga el temporizador de
+  frecuencia, volumen y envolvente; canal 3: posición 0 (la primera muestra nueva es la 1;
+  hasta entonces suena el byte que ya tenía el búfer); canal 4: LFSR = 7FFFh.
+- Pulso extra de longitud: si al escribir NRx4 se habilita la longitud y el próximo paso
+  del secuenciador **no** cuenta longitud, se descuenta uno en el acto (y si llega a 0 sin
+  disparo, se apaga); si además se dispara con longitud 0, se carga máx − 1 (Blargg 03).
+
+### 8.3 Registros
+- Lectura: los bits no usados o de sólo escritura leen 1. Máscaras (OR) FF10–FF2F:
+  `80 3F 00 FF BF | FF 3F 00 FF BF | 7F FF 9F FF BF | FF FF 00 00 BF | 00 00 (NR52) | FF…`.
+  NR52 = `70h | encendida<<7 | canales activos (bits 0–3)`.
+- NR52.7 = 0 apaga la APU: borra FF10–FF25 y, en CGB, **también los contadores de
+  longitud** (Blargg `cgb_sound` readme / 08: "on CGB, length counters are reset when
+  powered up"). La RAM de onda se conserva. Apagada, en CGB, todo FF10–FF25 es de sólo
+  lectura (en DMG las longitudes seguían escribiéndose).
+- RAM de onda en CGB: con el canal 3 activo, leer o escribir FF30–FF3F accede al byte que
+  el canal está reproduciendo (posición/2), en cualquier momento (sin la ventana de un
+  ciclo del DMG). Con el canal parado, acceso normal. Contenido al encender en CGB:
+  `00 FF 00 FF …` (Pan Docs).
+- PCM12 (FF76): nibble bajo = salida digital del canal 1, alto = canal 2; PCM34 (FF77):
+  canal 3 (ya desplazado por NR32) y canal 4. 0 con el canal parado. Sólo lectura.
+- Estado sin boot ROM (Pan Docs "Power Up Sequence"): NR52 = F1, NR50 = 77, NR51 = F3,
+  NR11 = 80 (lee BF), NR12 = F3; el canal 1 queda activo con la envolvente ya en 0
+  (aproximación: el sonido del logo ya se ha extinguido).
+
+### 8.4 Mezcla y salida
+- DAC: salida digital d (0–15) → analógica proporcional a 2d − 15 (con DAC encendido y el
+  canal parado, d = 0: el escalón de continua lo quita el paso alto). DAC apagado → 0.
+- NR51 elige qué canales van a cada lado; NR50 multiplica cada lado por vol + 1 (1–8).
+  VIN no se emula (ningún cartucho soportado lo usa).
+- Paso alto (condensador de salida): `out = in − cap; cap = in − out·k`, sólo mientras
+  algún DAC está encendido; con todos apagados la salida es 0 exacto. k = 0,999958 por
+  punto (valor del DMG en Pan Docs) `[VERIFICAR M2: Pan Docs indica 0,998943 "para MGB y
+  CGB", pero ese valor por punto daría un corte de ~700 Hz; falta saber a qué reloj se
+  refiere. Se usa el del DMG (~28 Hz)]`.
+- Resampleado (decisión de implementación, no hardware): la salida escalonada se integra
+  exactamente en bins de 32 puntos, el paso alto se aplica por bin y las muestras de
+  salida son el promedio (filtro de caja) de 4 194 304 / rate puntos. Escala: ±1,0 = 4
+  canales a 15 con volumen maestro 8.
+
+### 8.5 Inexactitudes conocidas
+- No se modelan: el retardo de unos puntos del primer paso tras el disparo (bits bajos del
+  temporizador del pulso, +6 puntos del canal 3), el "modo zombi" de NRx2 con el canal
+  activo, la corrupción de la RAM de onda (es de DMG), ni el desfase del primer paso del
+  secuenciador según DIV al encender. Pendiente de Blargg `cgb_sound` y SameSuite `apu/*`.
 
 ## 9. Doble velocidad
 
