@@ -1,0 +1,35 @@
+{
+  "note": "Línea base de npm run bench. Regenerar con: node tools/bench.mjs --save-baseline",
+  "date": "2026-11-25",
+  "machine": {
+    "cpu": "AMD Ryzen 5 2600 Six-Core Processor",
+    "node": "v24.15.0",
+    "platform": "win32"
+  },
+  "params": {
+    "frames": 128,
+    "repeats": 15,
+    "warmup": 240
+  },
+  "wasm": "build/wasm/core.wasm",
+  "scenarios": {
+    "heavy": {
+      "msFrame": 0.6195,
+      "minMs": 0.6135,
+      "spread": 7,
+      "realtime": 27.02,
+      "mhz": 113.3,
+      "fbHash": "0021bf10",
+      "audioHash": "04f6656d"
+    },
+    "idle": {
+      "msFrame": 0.48,
+      "minMs": 0.4739,
+      "spread": 6.5,
+      "realtime": 34.88,
+      "mhz": 146.3,
+      "fbHash": "0021bf10",
+      "audioHash": "d60a8f21"
+    }
+  }
+}

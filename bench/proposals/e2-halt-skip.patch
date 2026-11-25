@@ -1,0 +1,56 @@
+--- a/core/src/gbc.c	2026-11-25 10:21:30.586283800 +0100
++++ b/core/src/gbc.c	2026-11-25 10:25:01.855530100 +0100
+@@ -502,12 +502,53 @@
+     sm83_step(&gb.cpu);
+ }
+ 
++/* Ciclos M que faltan para que `div` (que avanza 4 por ciclo M) tenga un flanco de
++ * bajada en el bit `b`: el ciclo en que cruza el siguiente múltiplo de 2^(b+1). */
++static inline uint32_t div_fall_in(uint32_t b)
++{
++    uint32_t p = 2u << b;
++    return (p - (gb.div & (p - 1)) + 3) >> 2;
++}
++
++/* E2b: en HALT, sin IRQ ni DMA ni serie ni recarga de TIMA en curso, avanzar en bloque
++ * hasta el ciclo M anterior al siguiente efecto observable (evento de la PPU, flanco del
++ * temporizador o del secuenciador de la APU, fin del tramo). Lo que queda lo hace m_cycle. */
++static inline void halt_skip(uint64_t end)
++{
++    if (gb.serial_bits | gb.dma_delay | gb.oam_dma_active | gb.tima_state) return;
++    uint32_t step = gb.double_speed ? 2 : 4;
++    uint64_t lim = gb.next_event < end ? gb.next_event : end;
++    if (lim <= gb.now + step) return;
++    uint64_t n64 = (lim - gb.now + step - 1) / step;
++    uint32_t n = n64 > 0x4000 ? 0x4000 : (uint32_t)n64;
++    uint32_t a = div_fall_in(gb.double_speed ? 13 : 12);
++    if (a < n) n = a;
++    if (gb.tac & 4) {
++        static const uint8_t tbit[4] = { 9, 3, 5, 7 };
++        uint32_t t = div_fall_in(tbit[gb.tac & 3]);
++        if (t < n) n = t;
++    }
++    if (n <= 1) return;
++    n--;
++    gb.now += (uint64_t)n * step;
++    gb.div = (uint16_t)(gb.div + 4 * n);
++}
++
+ static int run_until(uint64_t end)
+ {
+     while (gb.now < end) {
+         if (debug_bp_count) {
+             if (!bp_skip && debug_is_bp(gb.cpu.pc.w)) { bp_skip = 1; return GB_STOP_BREAKPOINT; }
+             bp_skip = 0;
++        } else if (gb.cpu.halted) {
++            /* E2: en HALT sin IRQ pendiente cada paso es un tick; una HDMA pendiente se
++             * descarta igual que en step_once (no copia con la CPU parada). */
++            while (!bus_irq() && gb.now < end) {
++                hdma_pending = 0;
++                halt_skip(end);
++                m_cycle();
++            }
++            if (gb.now >= end) break;
+         }
+         step_once();
+     }

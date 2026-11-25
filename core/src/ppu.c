@@ -218,82 +218,115 @@ static inline uint16_t pal_color(int base, int idx)
     return (uint16_t)(P.pal[base + idx * 2] | (P.pal[base + idx * 2 + 1] & 0x7F) << 8);
 }
 
-static void render_pixel(int x)
+/* Emite el tramo [x0, x1) de la línea. Dentro del tramo registros, VRAM y OAM son
+ * constantes: gbc.c pone al día la PPU antes de cualquier acceso que los cambie, así que
+ * los cambios a mitad de línea cortan el tramo justo en su punto. Mapa y tile se leen una
+ * vez por tile y cada sprite una vez por tramo (P1/E1, bench/REPORT.md). */
+static void render_span(int x0, int x1)
 {
     uint8_t lcdc = P.lcdc;
     int cgb = gb.cgb;
     int line = P.line;
-    uint8_t bgc = 0, battr = 0;
+    uint8_t bgc[160], battr[160], sc[160], sat[160];
 
     /* Fondo / ventana. En modo CGB LCDC.0 no los apaga (es la prioridad maestra); en
-     * compatibilidad DMG sí (fondo y ventana en blanco). */
+     * compatibilidad DMG sí (fondo y ventana en blanco). La ventana empieza en WX−7. */
     if (cgb || (lcdc & 1)) {
-        uint32_t map, tx, ty;
-        if ((lcdc & 0x20) && P.wy_hit && x + 7 >= P.wx) {
-            map = (lcdc & 0x40) ? 0x1C00 : 0x1800;
-            tx = (uint32_t)(x + 7 - P.wx);
-            ty = P.win_line;
-            P.win_drawn = 1;
-        } else {
-            map = (lcdc & 0x08) ? 0x1C00 : 0x1800;
-            tx = (uint32_t)(x + P.scx) & 255;
-            ty = (uint32_t)(line + P.scy) & 255;
+        int wstart = ((lcdc & 0x20) && P.wy_hit) ? (int)P.wx - 7 : 1000;
+        for (int part = 0; part < 2; part++) {
+            int a = part ? (x0 > wstart ? x0 : wstart) : x0;
+            int b = part ? x1 : (x1 < wstart ? x1 : wstart);
+            if (a >= b) continue;
+            uint32_t map, ty, tx0;
+            if (part) {
+                map = (lcdc & 0x40) ? 0x1C00 : 0x1800;
+                tx0 = (uint32_t)(a + 7 - P.wx);
+                ty = P.win_line;
+                P.win_drawn = 1;
+            } else {
+                map = (lcdc & 0x08) ? 0x1C00 : 0x1800;
+                tx0 = (uint32_t)(a + P.scx);
+                ty = (uint32_t)(line + P.scy) & 255;
+            }
+            uint32_t mrow = map + (ty >> 3) * 32;
+            uint32_t tx = tx0;
+            int x = a;
+            while (x < b) {
+                tx &= 255;
+                uint32_t moff = mrow + ((tx >> 3) & 31);
+                uint8_t tile = gb.vram[0][moff];
+                uint8_t at = cgb ? gb.vram[1][moff] : 0;
+                uint32_t row = ty & 7;
+                if (at & 0x40) row = 7 - row;
+                uint32_t ta = (lcdc & 0x10) ? (uint32_t)tile * 16 : (uint32_t)(0x1000 + (int8_t)tile * 16);
+                ta += row * 2;
+                const uint8_t *v = gb.vram[(at >> 3) & 1];
+                uint32_t lo = v[ta], hi = v[ta + 1];
+                int col = (int)(tx & 7);
+                for (; col < 8 && x < b; col++, x++, tx++) {
+                    uint32_t c = (at & 0x20) ? (uint32_t)col : 7u - (uint32_t)col;
+                    bgc[x] = (uint8_t)(((lo >> c) & 1) | ((hi >> c) & 1) << 1);
+                    battr[x] = at;
+                }
+            }
         }
-        uint32_t moff = map + (ty >> 3) * 32 + ((tx >> 3) & 31);
-        uint8_t tile = gb.vram[0][moff];
-        if (cgb) battr = gb.vram[1][moff];
-        uint32_t row = ty & 7, col = tx & 7;
-        if (battr & 0x40) row = 7 - row;
-        if (battr & 0x20) col = 7 - col;
-        uint32_t ta = (lcdc & 0x10) ? (uint32_t)tile * 16 : (uint32_t)(0x1000 + (int8_t)tile * 16);
-        ta += row * 2;
-        const uint8_t *v = gb.vram[(battr >> 3) & 1];
-        uint32_t sh = 7 - col;
-        bgc = (uint8_t)(((v[ta] >> sh) & 1) | ((v[ta + 1] >> sh) & 1) << 1);
+    } else {
+        for (int x = x0; x < x1; x++) { bgc[x] = 0; battr[x] = 0; }
     }
 
-    /* Sprites: el primero de la lista (ya ordenada por prioridad) con color ≠ 0. */
-    uint8_t sc = 0, sattr = 0;
+    /* Sprites: en cada punto gana el primero de la lista (ya ordenada por prioridad) con
+     * color ≠ 0; recorrerlos en ese orden rellenando sólo huecos da lo mismo. */
+    for (int x = x0; x < x1; x++) sc[x] = 0;
     if (lcdc & 0x02) {
         int h = (lcdc & 0x04) ? 16 : 8;
         for (int i = 0; i < P.nspr; i++) {
             int sx = P.spr_x[i] - 8;
-            if (x < sx || x >= sx + 8) continue;
+            int a = sx > x0 ? sx : x0, b = sx + 8 < x1 ? sx + 8 : x1;
+            if (a >= b) continue;
             const uint8_t *o = &gb.oam[P.spr[i] * 4];
             uint8_t at = o[3];
             uint32_t row = (uint32_t)(line + 16 - P.spr_y[i]) & (uint32_t)(h - 1);
             if (at & 0x40) row = (uint32_t)(h - 1) - row;
             uint8_t tile = o[2];
             if (h == 16) tile &= 0xFE;
-            uint32_t col = (uint32_t)(x - sx);
-            if (at & 0x20) col = 7 - col;
             const uint8_t *v = gb.vram[cgb ? (at >> 3) & 1 : 0];
-            uint32_t ta = (uint32_t)tile * 16 + row * 2, sh = 7 - col;
-            uint8_t c = (uint8_t)(((v[ta] >> sh) & 1) | ((v[ta + 1] >> sh) & 1) << 1);
-            if (c) { sc = c; sattr = at; break; }
+            uint32_t ta = (uint32_t)tile * 16 + row * 2;
+            uint32_t lo = v[ta], hi = v[ta + 1];
+            for (int x = a; x < b; x++) {
+                if (sc[x]) continue;
+                uint32_t col = (uint32_t)(x - sx);
+                if (at & 0x20) col = 7 - col;
+                uint32_t sh = 7 - col;
+                uint8_t c = (uint8_t)(((lo >> sh) & 1) | ((hi >> sh) & 1) << 1);
+                if (c) { sc[x] = c; sat[x] = at; }
+            }
         }
     }
 
-    uint16_t rgb;
-    if (cgb) {
-        /* Gana el sprite si LCDC.0 = 0, si el fondo es color 0, o si ni el atributo del
-         * mapa ni el del sprite piden prioridad del fondo (docs §7.4). */
-        if (sc && (!(lcdc & 1) || bgc == 0 || !((battr | sattr) & 0x80)))
-            rgb = pal_color(64 + (sattr & 7) * 8, sc);
-        else
-            rgb = pal_color((battr & 7) * 8, bgc);
-    } else {
-        /* Compatibilidad DMG: BGP/OBPn eligen el tono, que indexa BG0/OBJ0/OBJ1. Con el
-         * fondo apagado se ve el tono 0 sin pasar por BGP [VERIFICAR V1]. */
-        uint8_t shade = (lcdc & 1) ? (uint8_t)((P.bgp >> (bgc * 2)) & 3) : 0;
-        if (sc && (bgc == 0 || !(sattr & 0x80))) {
-            uint8_t obp = (sattr & 0x10) ? P.obp1 : P.obp0;
-            rgb = pal_color(64 + ((sattr & 0x10) ? 8 : 0), (obp >> (sc * 2)) & 3);
+    uint32_t *fb = &fbuf[P.back][line * GB_FB_WIDTH];
+    for (int x = x0; x < x1; x++) {
+        uint16_t rgb;
+        uint8_t b = bgc[x], ba = battr[x], s = sc[x], sa = s ? sat[x] : 0;
+        if (cgb) {
+            /* Gana el sprite si LCDC.0 = 0, si el fondo es color 0, o si ni el atributo
+             * del mapa ni el del sprite piden prioridad del fondo (docs §7.4). */
+            if (s && (!(lcdc & 1) || b == 0 || !((ba | sa) & 0x80)))
+                rgb = pal_color(64 + (sa & 7) * 8, s);
+            else
+                rgb = pal_color((ba & 7) * 8, b);
         } else {
-            rgb = pal_color(0, shade);
+            /* Compatibilidad DMG: BGP/OBPn eligen el tono, que indexa BG0/OBJ0/OBJ1. Con
+             * el fondo apagado se ve el tono 0 sin pasar por BGP [VERIFICAR V1]. */
+            uint8_t shade = (lcdc & 1) ? (uint8_t)((P.bgp >> (b * 2)) & 3) : 0;
+            if (s && (b == 0 || !(sa & 0x80))) {
+                uint8_t obp = (sa & 0x10) ? P.obp1 : P.obp0;
+                rgb = pal_color(64 + ((sa & 0x10) ? 8 : 0), (obp >> (s * 2)) & 3);
+            } else {
+                rgb = pal_color(0, shade);
+            }
         }
+        fb[x] = lut[rgb];
     }
-    fbuf[P.back][line * GB_FB_WIDTH + x] = lut[rgb];
 }
 
 /* Emite los píxeles que corresponden hasta el punto `dot` del modo 3. */
@@ -301,7 +334,7 @@ static inline void render_to(uint32_t dot)
 {
     int upto = (int)dot - 80 - ((int)P.m3len - 160);
     if (upto > 160) upto = 160;
-    while (P.px < upto) render_pixel(P.px++);
+    if (P.px < upto) { render_span(P.px, upto); P.px = (uint8_t)upto; }
 }
 
 /* ------------------------------------------------------------------------------------

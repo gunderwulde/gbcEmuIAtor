@@ -80,7 +80,7 @@ static inline void apu_edge(uint16_t old, uint16_t now)
     if ((old & m) && !(now & m)) apu_div_event();
 }
 
-static inline void timer_mcycle(void)
+static inline __attribute__((always_inline)) void timer_mcycle(void)
 {
     /* La recarga ocurre un ciclo M después del desbordamiento; el estado 2 marca el ciclo
      * de la recarga (escribir TIMA se ignora; escribir TMA también carga TIMA). */
@@ -135,7 +135,7 @@ static inline void dma_mcycle(void)
  * Un ciclo M
  * ---------------------------------------------------------------------------------- */
 
-static inline void m_cycle(void)
+static inline __attribute__((always_inline)) void m_cycle(void)
 {
     gb.now += gb.double_speed ? 2 : 4;
     timer_mcycle();
@@ -375,7 +375,7 @@ static inline void mem_write(uint16_t a, uint8_t v)
  * Contrato bus.h
  * ---------------------------------------------------------------------------------- */
 
-static inline uint8_t bus_read(uint16_t a)
+static inline __attribute__((always_inline)) uint8_t bus_read(uint16_t a)
 {
     m_cycle();
     uint8_t v = mem_read(a);
@@ -383,14 +383,14 @@ static inline uint8_t bus_read(uint16_t a)
     return v;
 }
 
-static inline void bus_write(uint16_t a, uint8_t v)
+static inline __attribute__((always_inline)) void bus_write(uint16_t a, uint8_t v)
 {
     m_cycle();
     mem_write(a, v);
     BUSLOG(a, 1, v);
 }
 
-static inline void bus_tick(void)
+static inline __attribute__((always_inline)) void bus_tick(void)
 {
     m_cycle();
     BUSLOG(0, 2, 0);
