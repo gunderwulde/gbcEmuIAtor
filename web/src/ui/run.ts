@@ -15,6 +15,8 @@ export interface BuildOptions {
   file?: string;
   /** Ficheros para INCLUDE/INCBIN. */
   files?: ReadonlyMap<string, string | Uint8Array>;
+  /** Resolver de INCLUDE/INCBIN para lo que no esté en `files` (p. ej. la librería de C, U1). */
+  include?: (name: string, from: string) => string | Uint8Array | undefined;
   /** Conservar la WRAM (8 × 4 KB) a través del reset, para iterar sin perder estado. */
   keepWram?: boolean;
   /** Fuerza la bandera CGB; si no, la que ponga el programa en $0143 o C0h. */
@@ -54,7 +56,7 @@ const now = (): number => (typeof performance !== "undefined" ? performance.now(
 export function build(source: string, opts: BuildOptions = {}): BuildResult {
   const t0 = now();
   const file = opts.file ?? "main.asm";
-  const result = assemble(source, { file, files: opts.files });
+  const result = assemble(source, { file, files: opts.files, include: opts.include });
   if (result.errors.length > 0 || result.rom.length === 0)
     return { ok: false, result, headerErrors: [], ms: now() - t0 };
   try {

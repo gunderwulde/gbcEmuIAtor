@@ -5,7 +5,7 @@ import { Input } from "./emu/input";
 import { Loop } from "./emu/loop";
 import { cartKey, getFile, putFile } from "./emu/storage";
 import { mountDebugger } from "./ui/debugger";
-import { mountEditor } from "./ui/editor";
+import { mountTabsEditor } from "./ui/tabs";
 import { mountSplitter } from "./ui/layout";
 import { mountVramViewer } from "./ui/vram/viewer";
 
@@ -179,7 +179,7 @@ async function main(): Promise<void> {
   }
 
   // --- IDE: construir y ejecutar (Ctrl+Enter). buildAndRun ya ha insertado la ROM. ---
-  const editor = mountEditor($<HTMLElement>("editor"), { core, resume: () => runByApp(true) });
+  const editor = mountTabsEditor($<HTMLElement>("editor"), { core, resume: () => runByApp(true) });
   dbg = mountDebugger($<HTMLElement>("debugger"), {
     core,
     start: () => setRunning(true),
@@ -187,11 +187,13 @@ async function main(): Promise<void> {
     onStop: (cb) => stopCbs.push(cb),
     editor,
   });
+  // Otra pestaña: el depurador repinta sus breakpoints y la línea en ejecución.
+  editor.onSwitch(() => dbg?.controller.replaceBreakpoints(dbg.controller.breakpoints()));
   editor.onBuild(({ ok }) => {
     if (!ok) return;
     audio?.flush();
     const rom = new Uint8Array(core.x.memory.buffer, core.x.gb_rom(), 0x150).slice();
-    void cartInserted(rom, editor.fileName());
+    void cartInserted(rom, editor.builtName());
   });
 
   // --- Abrir ROM: botón y arrastrar/soltar ---
