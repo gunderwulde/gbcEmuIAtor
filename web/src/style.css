@@ -14,12 +14,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
 
 #app {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
+  grid-template-columns: var(--ide-w, 42%) 6px 1fr;
   height: 100%;
 }
 
+#splitter {
+  cursor: col-resize;
+  background: var(--line);
+  transition: background .15s;
+}
+#splitter:hover, #splitter.active { background: var(--accent); }
+
 #ide {
-  border-right: 1px solid var(--line);
+  min-width: 0;
   background: var(--panel);
   display: flex;
   align-items: center;

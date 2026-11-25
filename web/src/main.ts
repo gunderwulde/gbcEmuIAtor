@@ -4,6 +4,7 @@ import { Display } from "./emu/display";
 import { Input } from "./emu/input";
 import { Loop } from "./emu/loop";
 import { cartKey, getFile, putFile } from "./emu/storage";
+import { mountSplitter } from "./ui/layout";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const e = document.getElementById(id);
@@ -73,6 +74,7 @@ async function readFile(f: File): Promise<Uint8Array> {
 }
 
 async function main(): Promise<void> {
+  mountSplitter($("app"), $("ide"), $("splitter"));
   const core = await Core.load(`${import.meta.env.BASE_URL}wasm/core.wasm`);
   const display = new Display($<HTMLCanvasElement>("screen"));
   const input = new Input();
@@ -171,6 +173,7 @@ async function main(): Promise<void> {
     const f = e.dataTransfer?.files[0];
     if (!f) return;
     if (/\.sav$/i.test(f.name)) await importSav(f);
+    else if (/\.gbstate$/i.test(f.name)) await importState(f);
     else await loadRom(await readFile(f), f.name);
   });
 
@@ -188,6 +191,11 @@ async function main(): Promise<void> {
     const st = await getFile(`state:${key}`);
     if (!st) { say("No hay estado guardado para este cartucho"); return; }
     try { core.loadState(st.data); audio?.flush(); display.draw(core.framebuffer()); say("Estado cargado"); }
+    catch (e) { say((e as Error).message, true); }
+  }
+  async function importState(f: File): Promise<void> {
+    if (!cart) { say("Carga primero el cartucho del estado", true); return; }
+    try { core.loadState(await readFile(f)); audio?.flush(); display.draw(core.framebuffer()); say("Estado importado"); }
     catch (e) { say((e as Error).message, true); }
   }
   ui.saveState.onclick = () => void saveState().catch((e) => say(String(e), true));
