@@ -144,17 +144,33 @@ M1]`, contrastar con mooneye `boot_hwio-C`).
 | 0 (HBlank) | resto hasta 456 | todo |
 | 1 (VBlank) | líneas 144–153 | todo |
 
+Implementación (V1, `core/src/ppu.c`): la PPU se pone al día perezosamente hasta
+`gb.now` saltando de frontera en frontera (punto 80: modo 3; punto 80 + longitud del
+modo 3: modo 0; punto 456: línea nueva; línea 153 punto 4: LY = 0). Los píxeles se
+emiten durante el modo 3 hasta el punto del acceso (el píxel x sale en el punto
+80 + (len − 160) + x), así que los cambios de registros, VRAM y paletas a mitad de línea
+se ven en la columna correspondiente. No hay FIFO real: las penalizaciones del modo 3 se
+cargan al principio de la línea (ver inexactitudes en §7.7).
+
 ### 7.2 STAT y LY
 - La IRQ de STAT es la OR de las fuentes habilitadas (LYC=LY, modo 0, 1, 2); sólo se
-  dispara en el flanco de subida de esa OR ("STAT blocking").
-- En la línea 153, LY lee 0 poco después de empezar la línea `[VERIFICAR V1: punto
-  exacto en CGB]`.
-- Al encender el LCD, la primera línea no tiene modo 2 y dura distinto `[VERIFICAR V1]`.
+  dispara en el flanco de subida de esa OR ("STAT blocking"). Test: `tests/core/ppu/timing.test.ts`.
+- En la línea 153, LY lee 153 sólo el primer ciclo M (puntos 0–3) y después 0; la
+  comparación LYC usa ese LY `[VERIFICAR V1: punto exacto en CGB y en doble velocidad]`.
+- Al entrar en VBlank (línea 144) también se activa la fuente de modo 2 durante el
+  cambio (mooneye `vblank_stat_intr`) `[VERIFICAR V1: cuánto dura]`.
+- Al encender el LCD (LCDC.7 0→1) la línea 0 empieza en el punto 0 sin modo 2 (STAT lee
+  modo 0 hasta el modo 3) y ese primer frame no se muestra (se queda el framebuffer
+  blanco) `[VERIFICAR V1: duración exacta de esa primera línea]`. Al apagarlo LY = 0,
+  modo 0, y la pantalla se ve blanca.
+- VRAM bloqueada en modo 3 y OAM en modos 2 y 3 sólo con el LCD encendido (lecturas FFh,
+  escrituras ignoradas).
 
 ### 7.3 Longitud del modo 3
-172 puntos base + SCX % 8 + 6 por activar la ventana + 6–11 por sprite según su X
-respecto al tile de fondo `[VERIFICAR V1: fórmula exacta; contrastar con GBEDG y con el
-modelo REF de PPU-02]`.
+172 puntos base + SCX % 8 + 6 si la ventana empieza en la línea + por sprite 6 puntos más
+max(0, 5 − ((X + SCX) % 8)) para el primer sprite de cada tile de fondo (X = 0: 11)
+(Pan Docs "Mode 3 length"; tests en `timing.test.ts`: SCX 0/3/4/5/8, ventana, sprite en
+X = 8) `[VERIFICAR V1: casos de ventana con sprites y WX = 0; contrastar con GBEDG]`.
 
 ### 7.4 Fondo, ventana y sprites en CGB
 - Atributos del mapa en VRAM banco 1: paleta (0–2), banco de tile (3), volteo X (5), Y
@@ -163,22 +179,48 @@ modelo REF de PPU-02]`.
 - Sprites: hasta 10 por línea; en CGB, prioridad entre sprites por índice de OAM (OPRI=0)
   o por X como en DMG (OPRI=1). Atributo: paleta CGB (0–2), banco de tile (3).
 - Ventana: contador de líneas interno que sólo avanza cuando la ventana se ha dibujado
-  en esa línea.
+  en esa línea. Se activa si en algún momento del frame WY == LY al empezar una línea
+  (condición fijada hasta el frame siguiente) y WX ≤ 166 `[VERIFICAR V1: CGB evalúa
+  WY == LY también con LCDC.5 = 0]`.
+- Modo de compatibilidad DMG: prioridad entre sprites por X (y luego índice de OAM);
+  LCDC.0 = 0 pinta el fondo/ventana con el tono 0 de BG0 sin pasar por BGP
+  `[VERIFICAR V1]`. Ambos modos pasan cgb-acid2 y dmg-acid2 (`reference-cgb.png`).
 
 ### 7.5 Paletas
 - 8 paletas de fondo y 8 de sprites, 4 colores RGB555 (2 bytes, little endian) = 64
   bytes cada grupo. BCPS/OCPS: índice (bits 0–5) y autoincremento (bit 7).
-- En modo 3 las escrituras a BCPD/OCPD se ignoran y las lecturas dan FFh `[VERIFICAR V1:
-  ¿avanza el índice?]`.
-- Modo de compatibilidad (cartucho sin bandera CGB): BGP/OBP0/OBP1 indexan las paletas
-  que la boot ROM cargó. Sin boot ROM usamos una paleta fija documentada aquí
-  `[VERIFICAR V1: elegir y documentar]`.
+- En modo 3 las escrituras a BCPD/OCPD se ignoran y las lecturas dan FFh. Implementado:
+  el índice **sí** avanza con autoincremento aunque la escritura se ignore
+  `[VERIFICAR V1]`. BCPS/OCPS leen el bit 6 a 1. FF68–FF6C sólo existen en modo CGB (o
+  con la boot ROM mapeada); en compatibilidad leen FFh.
+- Modo de compatibilidad (cartucho sin bandera CGB): BGP/OBP0/OBP1 eligen el tono, que
+  indexa la paleta BG0 (fondo) y OBJ0/OBJ1 (sprites) que cargó la boot ROM. Sin boot ROM
+  se usa la paleta que la boot ROM del CGB asigna a los títulos que no reconoce (sin
+  pulsar botones) `[VERIFICAR V1: contrastar con la tabla de la boot ROM]`:
+  - BG0: 7FFFh, 1BEFh, 6180h, 0000h (blanco, verde claro, azul, negro).
+  - OBJ0 = OBJ1: 7FFFh, 421Fh, 1CF2h, 0000h (blanco, rosa, granate, negro).
+  En modo CGB sin boot ROM todas las paletas quedan en blanco (7FFFh).
 
 ### 7.6 Color en pantalla
-- Sin corrección: canal de 5 bits → 8 bits (`c << 3 | c >> 2`).
-- Con corrección (LCD del CGB, más apagado y con mezcla entre canales): curva a
-  documentar con su fuente `[VERIFICAR V1]`. Los tests de captura (`HW`) se comparan sin
-  corrección salvo que la suite diga lo contrario.
+- Sin corrección: canal de 5 bits → 8 bits (`c << 3 | c >> 2`). Es lo que usan los
+  tests de captura (acid2) y el valor por defecto.
+- Con corrección (`gb_set_color_correction(1)`): curva de byuu/Near (higan), que imita
+  el LCD del CGB mezclando canales:
+  `R = min(960, 26r + 4g + 2b) >> 2`, `G = min(960, 24g + 8b) >> 2`,
+  `B = min(960, 6r + 4g + 22b) >> 2` (blanco → 240). Es preferencia del frontend, no
+  estado de la máquina (no va en el estado guardado).
+- Framebuffer doble: se intercambia al entrar en VBlank; `gb_framebuffer()` da siempre
+  el último frame completo.
+
+### 7.7 Inexactitudes conocidas (V1)
+- Sin FIFO de píxeles: el modo 3 se calcula al empezar (búsqueda en OAM y fórmula de
+  §7.3), con todas las penalizaciones delante. Cambios de SCX, de LCDC.1/5 o de la OAM a
+  mitad del modo 3 no alteran su longitud, y los píxeles de una línea con sprites salen
+  más tarde que en el hardware (hasta ~11 puntos por sprite).
+- Las reglas de activación de la ventana a mitad de línea (WX cambiado durante el modo
+  3, WX = 0 con SCX % 8, WX = 166) son las simplificadas de §7.4.
+- La fuente de modo 2 en la línea 144 y la primera línea tras encender el LCD están
+  modeladas a partir de mooneye y Pan Docs, sin comprobar en hardware.
 
 ## 8. APU
 
@@ -307,4 +349,8 @@ marca de tiempo Unix de 64 bits) en el formato de BGB/VBA `[VERIFICAR M3]`.
 Registros tras la boot ROM del CGB con cartucho CGB: AF=1180h, BC=0000h, DE=FF56h,
 HL=000Dh, SP=FFFEh, PC=0100h `[VERIFICAR M1: valores con cartucho DMG; contrastar con
 mooneye boot_regs-cgb]`. Registros de E/S: tabla en §3 cuando M1 la complete (mooneye
-`boot_hwio-C`). LCD encendido, en la línea y modo que deje la boot ROM `[VERIFICAR V1]`.
+`boot_hwio-C`). PPU (V1): LCDC = 91h, STAT con modo 1, BGP = FCh, OBP0 = OBP1 = FFh,
+LY = 144 en el punto 0 (inicio del VBlank) en el instante del reset, con la IRQ de VBlank
+ya pedida en IF. Así cada `gb_run_frame` (múltiplos de 70 224 puntos desde el reset)
+acaba al empezar el VBlank `[VERIFICAR V1: fase real tras la boot ROM; mooneye
+boot_div/boot_hwio]`. Paletas: §7.5.
