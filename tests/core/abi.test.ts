@@ -48,8 +48,8 @@ describe("ABI", () => {
     expect(mem[ptr + 3]).toBe(0x34);
     expect(mem[ptr + 4]).toBe(0x56);
     expect(mem[ptr + 6]).toBe(0x78);
-    expect(mem[ptr + 8] | mem[ptr + 9]! << 8).toBe(0xABCD);
-    expect(mem[ptr + 10] | mem[ptr + 11]! << 8).toBe(0x1234);
+    expect(mem[ptr + 8]! | mem[ptr + 9]! << 8).toBe(0xABCD);
+    expect(mem[ptr + 10]! | mem[ptr + 11]! << 8).toBe(0x1234);
     expect(mem[ptr + 12]).toBe(1);
   });
 

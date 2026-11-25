@@ -84,9 +84,27 @@ M1]`, contrastar con mooneye `boot_hwio-C`).
   se decide *después* de escribir el byte alto del PC; si ya no hay IRQ, PC=0000h
   (mooneye `ie_push`).
 - **HALT**: con IME=0 y `IE&IF`≠0 al ejecutarlo → halt bug (el PC no se incrementa al leer
-  el siguiente opcode). `[VERIFICAR C1]` duración del despertar en CGB.
-- **STOP**: 2 bytes (10 00). Con KEY1.0=1 cambia la velocidad (§9); si no, para la CPU y
-  el LCD hasta que se pulse un botón `[VERIFICAR M1]` comportamiento exacto en CGB.
+  el siguiente opcode). Con IME=1 e IRQ pendiente no se entra: se despacha a continuación.
+  `EI; HALT` con IRQ pendiente: HALT se ejecuta aún con IME=0 → halt bug; el despacho
+  retrocede el PC del fetch descartado, así que la dirección de vuelta es el propio HALT
+  (Pan Docs, "halt bug"). Mientras dura, un ciclo M por paso; en el paso en que `IE&IF`≠0
+  sale y en la misma llamada despacha (IME=1) o hace el fetch siguiente (IME=0), sin ciclo
+  extra propio. `[VERIFICAR M1]` ciclo extra de salida en CGB con mooneye
+  `halt_ime0_nointr_timing` / `halt_ime1_timing2-GS` (Pan Docs dice "+1 ciclo M si estaba
+  en HALT"; con este modelo ese ciclo es el tick de HALT en que se levantó IF).
+- **STOP**: 2 bytes (10 xx) si no hay IRQ pendiente (el segundo se lee y se descarta);
+  1 byte si `IE&IF`≠0 (Pan Docs "Using the STOP instruction", SameBoy). Después decide la
+  máquina (`bus_stop`): con KEY1.0=1 cambia la velocidad (§9); si no, para la CPU y el LCD
+  hasta que se pulse un botón `[VERIFICAR M1]` comportamiento exacto en CGB.
+  SingleStepTests/sm83 (traducido de Ares) modela STOP como 1 byte con dos ciclos
+  internos: es la única desviación respecto a esa suite (CPU-01 usa este dato para 10).
+- **Opcodes ilegales**: el fetch ocurre (1 ciclo M) y el PC queda apuntando al opcode;
+  después la CPU sólo consume ciclos internos, ni las IRQ la despiertan.
+- **Ciclos M por instrucción** (verificados contra SingleStepTests/sm83, los 500 ficheros
+  × 1 000 casos, con dirección/valor/tipo de cada ciclo): interno en `INC/DEC rr`,
+  `ADD HL,rr`, `LD SP,HL`, `PUSH`/`RST`/`CALL` (antes de escribir), `JP nn`/`JP cc` tomado,
+  `JR` tomado, `RET`/`RETI` (después de leer), `RET cc` (uno antes de evaluar y otro al
+  cargar el PC si se toma), `LD HL,SP+e` (1) y `ADD SP,e` (2). `JP HL` es 1 ciclo.
 
 ## 5. Temporizador
 
