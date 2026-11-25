@@ -23,7 +23,7 @@ Fase 2 (paralela, 6 agentes) ─────────────────
    C2 Exactitud (mooneye, SameSuite, acid2, Mealybug)      P1 Rendimiento
    ▼
 Fase 2C (paralela) K1 compilador C · L1 librería C · U1 pestañas + C en la UI
-   ▼
+   ▼                 AV ejemplo de aventura original en C (tras K1 + L1)
 Fase 3 (secuencial) revisión global · pulido · README
    ▼
 Fase 4 (opcional) R1 recursos (PNG → tiles/paletas/mapas) · P1x proyectos .gbproj
@@ -367,6 +367,36 @@ pila en HRAM o WRAM alta, BSS a cero, copia de `.data`, rutina de OAM DMA a HRAM
 - **Aceptación:** tests sin DOM de la lógica de pestañas y del flujo compilar/arrancar
   contra el núcleo real; el ejemplo C por defecto es visual.
 
+### AV — Ejemplo grande: aventura original en C
+Demostración de punta a punta de la cadena C → ensamblador → ROM `.gbc` con un juego
+completo y pequeño, **de diseño propio**: ni personajes, ni mapas, ni gráficos, ni música,
+ni textos de ningún juego existente (AGENTS.md §6). Sirve además de prueba de carga del
+compilador y de la librería en un programa real.
+- **Posee:** `web/src/clib/examples/adventure/**`, `tests/clib/adventure/**`
+- **Depende de:** K1, L1 (y U1 para precargarlo en la UI).
+- **Trabajo:**
+  - Aventura de vista cenital por pantallas fijas (scroll de pantalla a pantalla):
+    protagonista con 4 direcciones y animación de 2 fotogramas, colisión con el mapa,
+    2–3 tipos de enemigo con IA sencilla, un arma, vida, objetos que abren paso
+    (llave → puerta, objeto → obstáculo) y una mazmorra corta con un jefe final.
+  - Mundo de ~16 pantallas exteriores + ~8 de mazmorra, mapas de 20×18 tiles con
+    atributos CGB (hasta 8 paletas de fondo, 8 de objetos).
+  - Gráficos, fuente y mapas originales, escritos como arrays C (o generados con R1 si la
+    fase 4 está hecha); música y efectos con la APU desde la librería.
+  - HUD en la ventana (vida, objetos), pantalla de título, fin de partida y guardado en la
+    RAM con pila del cartucho (MBC5 + RAM + pila: `.sav`).
+  - Código dividido en varios `.c`/`.h` (mapa, actores, jugador, HUD, sonido) para
+    ejercitar las pestañas y la compilación multi-fichero; ROM de 64–128 KB con bancos.
+- **Aceptación:**
+  - Compila sin errores ni avisos y la ROM exportada pasa la validación de cabecera y
+    checksums de E1.
+  - Tests en el núcleo real con entradas de joypad grabadas: el título llega a pantalla,
+    el jugador se mueve y choca con un muro (posición en OAM), se cambia de pantalla
+    (mapa en VRAM), se recoge una llave y se abre la puerta, y la partida guardada
+    sobrevive a `gb_save_sav` → `gb_reset` → `gb_load_sav`.
+  - Corre a 60 fps en el núcleo real: ningún frame de la partida grabada se pasa del
+    VBlank siguiente (medido con el contador de frames, no a ojo).
+
 ---
 
 ## Fase 3 — Cierre (secuencial)
@@ -408,6 +438,7 @@ pila en HRAM o WRAM alta, BSS a cero, copia de `.data`, rutina de OAM DMA a HRAM
 | K1 Compilador C | 2C | A1 | L1 (ABI), U1 (modo C) |
 | L1 Librería C | 2C | ABI de K1 | ejemplos C de U1 |
 | U1 Pestañas + C | 2C | I1, D1, K1 | fase 3 |
+| AV Aventura en C | 2C | K1, L1 (U1 para la UI) | fase 3 |
 
 Máximo de agentes simultáneos: **8** en la fase 1 y **6** en la fase 2, más un revisor por
 tarea al cerrar.
