@@ -45,7 +45,7 @@ export function runTo(x: Probe, t: number): void {
  *  máscara del joypad en cada tramo (opcional). */
 export function runUntilLdBB(x: Probe, maxSeconds: number, input?: (dots: number) => number): boolean {
   const start = x.gb_t_ld_b_b() >>> 0;
-  const end = now(x) + maxSeconds * DOTS_PER_SECOND;
+  const end = Math.round(now(x) + maxSeconds * DOTS_PER_SECOND);
   let pad = -1;
   while (now(x) < end) {
     if (input) {
@@ -176,7 +176,9 @@ export function compareScreen(x: Probe, refPng: Uint8Array, name: string): Scree
 
 /** Ejecuta `seconds` emulados con el joypad dado por `input(t)`. */
 export function runFor(x: Probe, seconds: number, input?: (dots: number) => number): void {
-  const end = now(x) + seconds * DOTS_PER_SECOND;
+  // Redondeado a puntos enteros: con un `end` fraccionario, run_until(end >>> 0) puede
+  // quedarse justo debajo y el bucle no terminar nunca.
+  const end = Math.round(now(x) + seconds * DOTS_PER_SECOND);
   let pad = -1;
   while (now(x) < end) {
     if (input) {
