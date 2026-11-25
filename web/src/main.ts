@@ -4,6 +4,7 @@ import { Display } from "./emu/display";
 import { Input } from "./emu/input";
 import { Loop } from "./emu/loop";
 import { cartKey, getFile, putFile } from "./emu/storage";
+import { mountEditor } from "./ui/editor";
 import { mountSplitter } from "./ui/layout";
 import { mountVramViewer } from "./ui/vram/viewer";
 
@@ -136,6 +137,13 @@ async function main(): Promise<void> {
       cart = null;
       return;
     }
+    await cartInserted(data, name);
+    localStorage.setItem("lastRomName", name);
+    await putFile("rom:last", data).catch(() => undefined);
+  }
+
+  /** Lo común a una ROM abierta y a una construida en el IDE (ya está en el núcleo). */
+  async function cartInserted(data: Uint8Array, name: string): Promise<void> {
     cart = parseHeader(data);
     key = cartKey(cart.title, cart.globalChecksum);
     fileName = name.replace(/\.[^.]*$/, "");
@@ -155,9 +163,16 @@ async function main(): Promise<void> {
     for (const b of [ui.reset, ui.pause, ui.saveState, ui.loadState]) b.disabled = false;
     ui.savExport.disabled = ui.savImport.disabled = !hasBattery();
     setRunning(true);
-    localStorage.setItem("lastRomName", name);
-    await putFile("rom:last", data).catch(() => undefined);
   }
+
+  // --- IDE: construir y ejecutar (Ctrl+Enter). buildAndRun ya ha insertado la ROM. ---
+  const editor = mountEditor($<HTMLElement>("editor"), { core, resume: () => setRunning(true) });
+  editor.onBuild(({ ok }) => {
+    if (!ok) return;
+    audio?.flush();
+    const rom = new Uint8Array(core.x.memory.buffer, core.x.gb_rom(), 0x150).slice();
+    void cartInserted(rom, editor.fileName());
+  });
 
   // --- Abrir ROM: botón y arrastrar/soltar ---
   ui.open.onclick = () => ui.fileRom.click();
@@ -262,7 +277,12 @@ async function main(): Promise<void> {
   core.setColorCorrection(ui.cc.checked);
 
   // --- Atajos ---
+  const typing = (e: KeyboardEvent): boolean => {
+    const t = e.target as HTMLElement | null;
+    return !!t && (t.isContentEditable || !!t.closest(".cm-editor, input, select, textarea"));
+  };
   window.addEventListener("keydown", (e) => {
+    if (typing(e) && (e.code === "Tab" || e.code === "KeyP")) return;
     if (e.code === "Tab") { e.preventDefault(); fastForward = true; loop.speed = 4; }
     else if (e.code === "KeyP" && cart) setRunning(paused);
     else if (e.code === "F2") { e.preventDefault(); void saveState(); }

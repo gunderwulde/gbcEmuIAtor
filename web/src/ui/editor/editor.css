@@ -1,0 +1,40 @@
+/* Editor del IDE (I1). Colores de web/src/style.css. */
+.ed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 60%;
+  min-height: 260px;
+  gap: .4rem;
+}
+.ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.ed-build { border-color: var(--accent); }
+.ed-keep { color: var(--dim); display: inline-flex; gap: .3rem; align-items: center; }
+.ed-cm {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ed-status {
+  min-height: 1.4em;
+  color: var(--dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-status[data-level="ok"] { color: #9ece6a; }
+.ed-status[data-level="warning"] { color: #e0af68; }
+.ed-status[data-level="error"] { color: #f7768e; }
+
+.ed .cm-bp-gutter .cm-gutterElement {
+  cursor: pointer;
+  color: transparent;
+  padding: 0 2px;
+  font-size: 11px;
+}
+.ed .cm-bp-gutter .cm-gutterElement:hover { color: #f7768e55; }
+.ed .cm-bp-dot { color: #f7768e; }
+.ed .cm-exec-line { background-color: #e0af6826 !important; box-shadow: inset 3px 0 0 #e0af68; }
