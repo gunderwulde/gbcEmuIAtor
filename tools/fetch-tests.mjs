@@ -11,11 +11,15 @@
 //   - Suites de muchos ficheros (SingleStepTests): un único SHA-256 "de conjunto", el
 //     SHA-256 del texto formado por las líneas "<nombre> <sha256 del fichero>\n" en orden
 //     de nombre. Si no coincide se imprime el hash de cada fichero para localizar el fallo.
+//   - Suites que salen de un .zip (c-sp/game-boy-test-roms): SHA-256 del .zip completo;
+//     se extraen sólo los prefijos pedidos (o el mapa origen → destino).
 // Una suite verificada deja un sello (.fetched) con su hash; con él no se vuelve a bajar.
+// Lo descargado son datos: sólo se leen y se escriben a disco, nunca se ejecuta nada.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, normalize, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtures = join(root, "tests", "fixtures");
@@ -33,6 +37,9 @@ for (let op = 0; op < 256; op++) {
   if (op !== 0xcb && !SM83_ILLEGAL.includes(op)) sm83Files.push(`${hex2(op)}.json`);
 }
 for (let op = 0; op < 256; op++) sm83Files.push(`cb ${hex2(op)}.json`);
+
+const GBTR_ZIP = "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip";
+const GBTR_SHA256 = "b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c";
 
 const SUITES = [
   {
@@ -64,6 +71,42 @@ const SUITES = [
       "halt_bug.gb": "ddebfb81f992132954a5580e16cfb97346a4e061c762634d7701328e23fea7c6",
     },
   },
+  // Compilación de ROMs ya ensambladas de c-sp/game-boy-test-roms v7.0 (mooneye, SameSuite,
+  // Mealybug Tearoom con sus capturas de referencia, AGE, rtc3test, acid2, Blargg
+  // cgb_sound). Las suites originales sólo publican fuente (salvo mooneye y acid2): esta
+  // release las trae compiladas, con las imágenes esperadas al lado de cada ROM.
+  {
+    name: "gbtr",
+    dir: "gbtr",
+    zip: GBTR_ZIP,
+    zipHash: GBTR_SHA256,
+    prefixes: [
+      "mooneye-test-suite/",
+      "same-suite/",
+      "mealybug-tearoom-tests/",
+      "age-test-roms/",
+      "rtc3test/",
+      "blargg/cgb_sound/",
+      // halt_bug e interrupt_time sólo dan el resultado en pantalla: capturas de referencia.
+      "blargg/halt_bug-dmg-cgb.png",
+      "blargg/interrupt_time/interrupt_time-cgb.png",
+    ],
+  },
+  // acid2: en las rutas que espera tests/core/ppu/acid2.test.ts.
+  {
+    name: "cgb-acid2",
+    dir: "cgb-acid2",
+    zip: GBTR_ZIP,
+    zipHash: GBTR_SHA256,
+    map: { "cgb-acid2/cgb-acid2.gbc": "cgb-acid2.gbc", "cgb-acid2/cgb-acid2.png": "reference.png" },
+  },
+  {
+    name: "dmg-acid2",
+    dir: "dmg-acid2",
+    zip: GBTR_ZIP,
+    zipHash: GBTR_SHA256,
+    map: { "dmg-acid2/dmg-acid2.gb": "dmg-acid2.gb", "dmg-acid2/dmg-acid2-cgb.png": "reference-cgb.png" },
+  },
 ];
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
@@ -80,6 +123,70 @@ async function download(url) {
   }
 }
 
+// Lector mínimo de .zip (sin zip64 ni cifrado): directorio central → cabecera local →
+// datos "stored" (0) o "deflate" (8). Devuelve Map<nombre, Uint8Array> de los ficheros
+// (no directorios) cuyo nombre acepta `want`.
+function readZip(buf, want) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let eocd = -1;
+  for (let p = buf.length - 22; p >= Math.max(0, buf.length - 22 - 65535); p--) {
+    if (dv.getUint32(p, true) === 0x06054b50) { eocd = p; break; }
+  }
+  if (eocd < 0) throw new Error("zip: no se encuentra el directorio central");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  const out = new Map();
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("zip: entrada central corrupta");
+    const flags = dv.getUint16(p + 8, true);
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const usize = dv.getUint32(p + 24, true);
+    const nlen = dv.getUint16(p + 28, true);
+    const xlen = dv.getUint16(p + 30, true);
+    const clen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = dec.decode(buf.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (name.endsWith("/") || !want(name)) continue;
+    if (flags & 1) throw new Error(`zip: ${name} cifrado`);
+    if (dv.getUint32(local, true) !== 0x04034b50) throw new Error(`zip: cabecera local de ${name}`);
+    const start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+    const raw = buf.subarray(start, start + csize);
+    const data = method === 0 ? raw : method === 8 ? new Uint8Array(inflateRawSync(raw)) : null;
+    if (!data) throw new Error(`zip: ${name} usa el método ${method}`);
+    if (data.length !== usize) throw new Error(`zip: ${name} mide ${data.length}, se esperaba ${usize}`);
+    out.set(name, data);
+  }
+  return out;
+}
+
+// Ruta de destino segura (relativa, sin "..") para un nombre sacado de un .zip.
+function safeRel(name) {
+  const n = normalize(name);
+  if (isAbsolute(n) || n.startsWith("..") || n.includes(":")) throw new Error(`zip: ruta no válida ${name}`);
+  return n;
+}
+
+const zipCache = new Map();
+async function zipFiles(s) {
+  if (!zipCache.has(s.zip)) {
+    const data = await download(s.zip);
+    const h = sha256(data);
+    if (printHashes) console.log(`${s.name}: SHA-256 del zip ${h}`);
+    else if (h !== s.zipHash) throw new Error(`SHA-256 del zip ${h}, se esperaba ${s.zipHash}`);
+    zipCache.set(s.zip, data);
+  }
+  const buf = zipCache.get(s.zip);
+  if (s.map) {
+    const got = readZip(buf, (n) => n in s.map);
+    for (const k of Object.keys(s.map)) if (!got.has(k)) throw new Error(`zip: falta ${k}`);
+    return [...got].map(([k, v]) => [s.map[k], v]);
+  }
+  return [...readZip(buf, (n) => s.prefixes.some((pre) => n.startsWith(pre)))];
+}
+
 async function fetchSuite(s) {
   const dst = join(fixtures, s.dir);
   const stamp = join(dst, ".fetched");
@@ -90,6 +197,20 @@ async function fetchSuite(s) {
   const tmp = `${dst}.tmp`;
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
+
+  if (s.zip) {
+    const files = await zipFiles(s);
+    for (const [name, data] of files) {
+      const p = join(tmp, safeRel(name));
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, data);
+    }
+    writeFileSync(join(tmp, ".fetched"), `${s.zipHash}\n`);
+    rmSync(dst, { recursive: true, force: true });
+    renameSync(tmp, dst);
+    console.log(`${s.name}: ${files.length} ficheros extraídos en ${s.dir}`);
+    return true;
+  }
 
   const sums = new Map();
   let next = 0;
