@@ -27,11 +27,13 @@ navegador, nunca en el repositorio ni en el servidor. El núcleo lo recibe por
 
 ## Boot ROM de prueba (tests)
 
-`tests/fixtures-own/testboot.asm` es una boot ROM **escrita por nosotros** que replica
-la comprobación del checksum de cabecera para probar las ROMs que exporta el IDE
-(PLAN.md, E1). El logo no lo comprueba ella: el test compara los 48 bytes con un
-SHA-256 anotado en docs, obtenido una vez de una fuente independiente (`rgbfix` de
-RGBDS), para que el oráculo no sea el propio exportador.
+`tests/fixtures-own/boot-check/boot-check.ts` genera una boot ROM **escrita por
+nosotros** (ensamblada a mano, listado en el fichero) que replica las comprobaciones
+documentadas del arranque del CGB (logo, checksum de cabecera, KEY0 = 04h para
+cartuchos DMG) para probar las ROMs que exporta el IDE (PLAN.md, E1); si algo falla se
+queda en un bucle en 0030h. El logo no se guarda en ella: los tests se lo pasan
+tomado de las ROMs de la comunidad que descarga `npm run fetch` (cgb-acid2, dmg-acid2,
+Blargg), que son también el oráculo del logo del exportador.
 
 ## Para desarrolladores
 
