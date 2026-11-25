@@ -40,7 +40,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
   flex: 1 0 60%;
   min-height: 320px;
 }
-#vram { flex: none; }
+#debugger, #vram { flex: none; }
 
 #emu {
   display: flex;

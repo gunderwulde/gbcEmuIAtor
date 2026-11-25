@@ -1,0 +1,103 @@
+/* Depurador (D1). Tema oscuro con las variables de style.css y valores por defecto. */
+.dbg {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  width: 100%;
+  font-size: 12px;
+  color: var(--fg, #d9dbe2);
+}
+.dbg h3 {
+  margin: 0 0 .25rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--dim, #8a8f9c);
+}
+.dbg-sec { display: flex; flex-direction: column; gap: .3rem; }
+.dbg-dim { color: var(--dim, #8a8f9c); }
+
+.dbg-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.dbg-bar button.on { color: var(--accent, #7aa2f7); border-color: var(--accent, #7aa2f7); }
+.dbg-status { margin-left: .4rem; color: var(--dim, #8a8f9c); }
+.dbg.running .dbg-status { color: var(--accent, #7aa2f7); }
+
+.dbg-top { display: grid; grid-template-columns: minmax(9rem, 1fr) 2fr; gap: .75rem; }
+.dbg-regs, .dbg-io, .dbg-dis, .dbg-mem {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.dbg-regs > div, .dbg-io > div { display: flex; gap: .6rem; white-space: nowrap; }
+.dbg-k { color: var(--dim, #8a8f9c); min-width: 4.5rem; }
+.dbg-v { color: var(--fg, #d9dbe2); }
+
+.dbg-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.dbg-row label { display: inline-flex; align-items: center; gap: .2rem; color: var(--dim, #8a8f9c); }
+.dbg-row select { padding: .1rem .3rem; }
+.dbg-goto {
+  width: 13rem;
+  padding: .15rem .35rem;
+  background: var(--bg, #16171c);
+  color: var(--fg, #d9dbe2);
+  border: 1px solid var(--line, #30333d);
+  border-radius: 3px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+/* Desensamblado */
+.dbg-dis {
+  border: 1px solid var(--line, #30333d);
+  background: var(--bg, #16171c);
+  padding: .2rem 0;
+  outline: none;
+  user-select: none;
+}
+.dbg-dis:focus-visible { border-color: var(--accent, #7aa2f7); }
+.dbg-line { display: flex; align-items: center; gap: .6rem; line-height: 1.45; cursor: default; white-space: pre; }
+.dbg-line:hover { background: rgba(255, 255, 255, .04); }
+.dbg-line.sel { background: rgba(122, 162, 247, .14); }
+.dbg-line.pc { background: rgba(224, 175, 104, .2); }
+.dbg-line.pc .dbg-text { color: #e0af68; }
+.dbg-label { padding-left: 1.6rem; color: var(--accent, #7aa2f7); line-height: 1.45; }
+.dbg-gut {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-left: .3rem;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.dbg-gut:hover { background: rgba(247, 118, 142, .3); }
+.dbg-gut.bp { background: #f7768e; }
+.dbg-addr { color: var(--dim, #8a8f9c); min-width: 3.4rem; }
+.dbg-bytes { color: var(--dim, #8a8f9c); min-width: 5.6rem; }
+.dbg-text { color: var(--fg, #d9dbe2); }
+
+/* Breakpoints */
+.dbg-bps { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; font-family: ui-monospace, Consolas, monospace; }
+.dbg-bp, .dbg-chip { display: inline-flex; align-items: center; gap: .2rem; }
+.dbg-link { cursor: pointer; color: var(--accent, #7aa2f7); }
+.dbg-link:hover { text-decoration: underline; }
+.dbg-x { padding: 0 .3rem; line-height: 1.2; }
+
+/* Memoria */
+.dbg-mem { border: 1px solid var(--line, #30333d); background: var(--bg, #16171c); padding: .2rem .4rem; }
+.dbg-mrow { display: flex; align-items: center; gap: .3rem; line-height: 1.45; white-space: pre; }
+.dbg-mrow .dbg-addr { min-width: 3rem; margin-right: .3rem; }
+.dbg-byte { width: 1.3rem; text-align: center; }
+.dbg-byte.w { cursor: text; }
+.dbg-byte.w:hover { background: rgba(122, 162, 247, .2); }
+.dbg-edit {
+  width: 1.3rem;
+  padding: 0;
+  text-align: center;
+  font: inherit;
+  text-transform: uppercase;
+  background: var(--panel, #1f2128);
+  color: var(--accent, #7aa2f7);
+  border: 1px solid var(--accent, #7aa2f7);
+}
+.dbg-ascii { margin-left: .6rem; color: var(--dim, #8a8f9c); }
+.dbg-wps { font-family: ui-monospace, Consolas, monospace; }
+.dbg-wps .dbg-goto { width: 8rem; }

@@ -4,6 +4,7 @@ import { Display } from "./emu/display";
 import { Input } from "./emu/input";
 import { Loop } from "./emu/loop";
 import { cartKey, getFile, putFile } from "./emu/storage";
+import { mountDebugger } from "./ui/debugger";
 import { mountEditor } from "./ui/editor";
 import { mountSplitter } from "./ui/layout";
 import { mountVramViewer } from "./ui/vram/viewer";
@@ -104,11 +105,17 @@ async function main(): Promise<void> {
         const s = core.audio(audio.sampleRate);
         if (!fastForward) audio.push(s);
       }
-      if (r === Stop.Breakpoint) { say("Breakpoint"); return false; }
+      if (r === Stop.Breakpoint) {
+        // Se avisa al depurador cuando el bucle ya está parado (nunca desde dentro del frame).
+        queueMicrotask(() => { setRunning(false); for (const cb of stopCbs) cb(r); });
+        return false;
+      }
       return true;
     },
-    present: () => { display.draw(core.framebuffer()); vram.refresh(); },
+    present: () => { display.draw(core.framebuffer()); vram.refresh(); dbg?.refresh(); },
   });
+  const stopCbs: Array<(r: number) => void> = [];
+  let dbg: ReturnType<typeof mountDebugger> | null = null;
 
   // --- .sav: se guarda en IndexedDB en cuanto el juego escribe en la RAM con pila ---
   const hasBattery = (): boolean => !!cart && BATTERY.has(cart.type) && core.sramSize() > 0;
@@ -120,11 +127,17 @@ async function main(): Promise<void> {
   document.addEventListener("visibilitychange", () => { if (document.hidden) void flushSav(); });
   window.addEventListener("pagehide", () => { void flushSav(); });
 
+  /** Arranca o para el bucle. No avisa al depurador: lo usa también él (start/stop). */
   function setRunning(run: boolean): void {
     paused = !run;
-    if (run) loop.start(); else { loop.stop(); vram.refresh(); }
+    if (run) loop.start(); else { loop.stop(); vram.refresh(); dbg?.refresh(); }
     ui.pause.textContent = run ? "Pausa" : "Continuar";
     ui.pause.classList.toggle("on", !run);
+  }
+  /** Arranques y paradas que decide la app (no el depurador): se le notifican. */
+  function runByApp(run: boolean): void {
+    setRunning(run);
+    dbg?.syncRunning(run);
   }
 
   async function loadRom(data: Uint8Array, name: string): Promise<void> {
@@ -162,11 +175,18 @@ async function main(): Promise<void> {
     ui.hint.classList.add("hidden");
     for (const b of [ui.reset, ui.pause, ui.saveState, ui.loadState]) b.disabled = false;
     ui.savExport.disabled = ui.savImport.disabled = !hasBattery();
-    setRunning(true);
+    runByApp(true);
   }
 
   // --- IDE: construir y ejecutar (Ctrl+Enter). buildAndRun ya ha insertado la ROM. ---
-  const editor = mountEditor($<HTMLElement>("editor"), { core, resume: () => setRunning(true) });
+  const editor = mountEditor($<HTMLElement>("editor"), { core, resume: () => runByApp(true) });
+  dbg = mountDebugger($<HTMLElement>("debugger"), {
+    core,
+    start: () => setRunning(true),
+    stop: () => setRunning(false),
+    onStop: (cb) => stopCbs.push(cb),
+    editor,
+  });
   editor.onBuild(({ ok }) => {
     if (!ok) return;
     audio?.flush();
@@ -194,8 +214,8 @@ async function main(): Promise<void> {
     else await loadRom(await readFile(f), f.name);
   });
 
-  ui.reset.onclick = () => { core.reset(); audio?.flush(); setRunning(true); say("Reset"); };
-  ui.pause.onclick = () => setRunning(paused);
+  ui.reset.onclick = () => { core.reset(); audio?.flush(); runByApp(true); say("Reset"); };
+  ui.pause.onclick = () => runByApp(paused);
 
   // --- Estados rápidos (uno por cartucho, en IndexedDB) ---
   async function saveState(): Promise<void> {
@@ -284,7 +304,7 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", (e) => {
     if (typing(e) && (e.code === "Tab" || e.code === "KeyP")) return;
     if (e.code === "Tab") { e.preventDefault(); fastForward = true; loop.speed = 4; }
-    else if (e.code === "KeyP" && cart) setRunning(paused);
+    else if (e.code === "KeyP" && cart) runByApp(paused);
     else if (e.code === "F2") { e.preventDefault(); void saveState(); }
     else if (e.code === "F4") { e.preventDefault(); void loadState(); }
   });
