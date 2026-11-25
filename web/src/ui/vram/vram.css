@@ -1,0 +1,67 @@
+/* Visores de VRAM (G1). Usa las variables de style.css con valores por defecto. */
+.vram {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  width: 100%;
+  max-width: 520px;
+  font-size: 12px;
+  color: var(--fg, #d9dbe2);
+}
+.vram-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line, #30333d); }
+.vram-tabs button {
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: .2rem .7rem;
+}
+.vram-tabs button.on { color: var(--accent, #7aa2f7); border-color: var(--accent, #7aa2f7); }
+.vram-page { display: flex; flex-direction: column; gap: .4rem; }
+.vram-page[hidden] { display: none; }
+.vram-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.vram-row label { display: inline-flex; align-items: center; gap: .3rem; color: var(--dim, #8a8f9c); }
+.vram-row select { padding: .1rem .3rem; }
+.vram-dim { color: var(--dim, #8a8f9c); }
+.vram-info {
+  min-height: 1.4em;
+  color: var(--dim, #8a8f9c);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+}
+
+.vram-px, .vram-map { image-rendering: pixelated; display: block; background: #000; }
+
+.vram-sheets { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.vram-sheets figure { margin: 0; }
+.vram-sheets canvas { width: 100%; max-width: 256px; aspect-ratio: 2 / 3; height: auto; }
+.vram-sheets figcaption { color: var(--dim, #8a8f9c); text-align: center; }
+
+.vram-map { width: 100%; max-width: 512px; aspect-ratio: 1; height: auto; }
+.vram-legend { display: flex; align-items: center; gap: .4rem; color: var(--dim, #8a8f9c); }
+.vram-legend span { display: inline-block; width: 12px; height: 4px; }
+.vram-legend .k-bg { background: #ff4d6a; }
+.vram-legend .k-win { background: #4dd0ff; margin-left: .6rem; }
+
+.vram-oam { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.vram-oam-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 0 1px;
+  border: 1px solid var(--line, #30333d);
+  border-radius: 3px;
+  cursor: default;
+}
+.vram-oam-cell:hover { border-color: var(--accent, #7aa2f7); }
+.vram-oam-cell.off { opacity: .4; }
+/* 8×16 en el canvas; en modo 8×8 sólo se enseña la mitad de arriba. */
+.vram-oam-cell canvas { width: 32px; height: 64px; object-fit: cover; object-position: top; }
+.vram-oam:not(.tall) .vram-oam-cell canvas { height: 32px; }
+.vram-oam-cell span { font-size: 10px; color: var(--dim, #8a8f9c); }
+.vram-oam-info { min-height: 2.8em; }
+
+.vram-pals { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem .8rem; }
+.vram-pal { display: flex; align-items: center; gap: .3rem; }
+.vram-pal-name { width: 2.6em; color: var(--dim, #8a8f9c); }
+.vram-sw { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.vram-sw i { display: block; width: 26px; height: 18px; border: 1px solid var(--line, #30333d); }
+.vram-sw code { font-size: 10px; color: var(--dim, #8a8f9c); }

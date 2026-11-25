@@ -29,11 +29,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
   min-width: 0;
   background: var(--panel);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  overflow: auto;
+  padding: .75rem;
 }
-.placeholder { color: var(--dim); text-align: center; }
-.placeholder h2 { margin: 0 0 .25rem; font-weight: 600; color: var(--fg); }
 
 #emu {
   display: flex;

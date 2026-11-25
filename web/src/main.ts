@@ -5,6 +5,7 @@ import { Input } from "./emu/input";
 import { Loop } from "./emu/loop";
 import { cartKey, getFile, putFile } from "./emu/storage";
 import { mountSplitter } from "./ui/layout";
+import { mountVramViewer } from "./ui/vram/viewer";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const e = document.getElementById(id);
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
   mountSplitter($("app"), $("ide"), $("splitter"));
   const core = await Core.load(`${import.meta.env.BASE_URL}wasm/core.wasm`);
   const display = new Display($<HTMLCanvasElement>("screen"));
+  const vram = mountVramViewer($<HTMLElement>("vram"), core);
   const input = new Input();
   let audio: AudioSink | null = null;
   let soundOn = false;
@@ -104,7 +106,7 @@ async function main(): Promise<void> {
       if (r === Stop.Breakpoint) { say("Breakpoint"); return false; }
       return true;
     },
-    present: () => display.draw(core.framebuffer()),
+    present: () => { display.draw(core.framebuffer()); vram.refresh(); },
   });
 
   // --- .sav: se guarda en IndexedDB en cuanto el juego escribe en la RAM con pila ---
@@ -119,7 +121,7 @@ async function main(): Promise<void> {
 
   function setRunning(run: boolean): void {
     paused = !run;
-    if (run) loop.start(); else loop.stop();
+    if (run) loop.start(); else { loop.stop(); vram.refresh(); }
     ui.pause.textContent = run ? "Pausa" : "Continuar";
     ui.pause.classList.toggle("on", !run);
   }
