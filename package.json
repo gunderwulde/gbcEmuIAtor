@@ -1,0 +1,32 @@
+{
+  "name": "gbcemuiator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build:core": "node tools/build-core.mjs",
+    "fetch": "node tools/fetch-tests.mjs",
+    "dev": "npm run build:core && vite",
+    "build": "npm run build:core && tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:cpu": "vitest run tests/core/cpu",
+    "test:acc": "vitest run tests/accuracy",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
+    "bench": "node tools/bench.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@lezer/highlight": "1.2.5"
+  }
+}

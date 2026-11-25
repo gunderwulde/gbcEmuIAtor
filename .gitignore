@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+*.wasm
+tests/fixtures/
+*.log
+.DS_Store
+rom/*.bin
+rom/*.gb
+rom/*.gbc
+rom/*.sav
