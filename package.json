@@ -12,6 +12,7 @@
     "test:cpu": "vitest run tests/core/cpu",
     "test:acc": "vitest run tests/accuracy",
     "test:perf": "vitest run --config vitest.perf.config.ts",
+    "run-rom": "node tools/run-rom.mjs",
     "bench": "node tools/bench.mjs",
     "typecheck": "tsc --noEmit"
   },
